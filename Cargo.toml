@@ -1,0 +1,9 @@
+[package]
+name = "horn"
+version = "0.1.0"
+authors = ["andrei-papou <popow.andrej2009@yandex.ru>"]
+edition = "2018"
+
+[dependencies]
+ndarray = "0.12.1"
+num-traits = "0.2.8"
