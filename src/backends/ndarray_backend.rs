@@ -1,8 +1,20 @@
-use std::ops::{Neg, Div};
+use std::marker::PhantomData;
+use std::ops::{Neg, Div, Add};
 use crate::num_traits::identities::{One, Zero};
-use crate::ndarray::{Array, Array2, Axis, LinalgScalar, ScalarOperand, Dimension};
+use crate::ndarray::{
+    Array,
+    Array1,
+    Array2,
+    ArrayD,
+    Axis,
+    LinalgScalar,
+    Dimension,
+    RemoveAxis
+};
 use crate::{F64CompliantScalar};
 use crate::backends::backend::{
+    Backend,
+    Container,
     TensorAdd,
     TensorSub,
     TensorMul,
@@ -13,11 +25,49 @@ use crate::backends::backend::{
     Dot,
     Exp,
     Tensor,
-    SameFromScalar,
     Broadcast,
     ShapeVec,
-    Shape
+    Shape,
+    ReduceSum,
+    ReduceMean,
 };
+use std::convert::{TryInto, TryFrom};
+
+pub struct NdArrayBackend<A> {
+    _marker: PhantomData<A>,
+}
+
+impl<A> NdArrayBackend<A> {
+    fn new() -> NdArrayBackend<A> {
+        NdArrayBackend {
+            _marker: PhantomData::<A>
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct NdArrayCommonRepr<A> {
+    data: Vec<A>,
+    shape: ShapeVec,
+}
+
+impl<A> NdArrayCommonRepr<A> {
+    fn new(data: Vec<A>, shape: ShapeVec) -> NdArrayCommonRepr<A> {
+        NdArrayCommonRepr {
+            data,
+            shape,
+        }
+    }
+}
+
+impl<A> Backend for NdArrayBackend<A> {
+    type Scalar = A;
+    type CommonRepr = NdArrayCommonRepr<A>;
+
+    type Tensor1D = Array1<A>;
+    type Tensor2D = Array2<A>;
+    type TensorXD = ArrayD<A>;
+}
 
 fn check_shapes_equal<T: Shape>(lhs: &T, rhs: &T) -> Result<(), String> {
     let lhs_shape = lhs.shape();
@@ -29,12 +79,12 @@ fn check_shapes_equal<T: Shape>(lhs: &T, rhs: &T) -> Result<(), String> {
     }
 }
 
-impl<A, D> SameFromScalar<A> for Array<A, D>
+impl<A, D> Container for Array<A, D>
 where
     A: Clone,
     D: Dimension,
 {
-    type Output = Self;
+    type Elem = A;
 
     fn same_from_scalar(&self, x: A) -> Self {
         Array::<A, D>::from_elem(self.dim(), x)
@@ -71,7 +121,7 @@ impl<A, D> TensorNeg for Array<A, D>
 where
     A: Copy + LinalgScalar + Neg<Output = A>,
     D: Dimension,
-    Self: TensorMul<Self, Output=Self> + SameFromScalar<A, Output = Self>,
+    Self: TensorMul<Self, Output=Self> + Container<Elem = A>,
 {
     type Output = Self;
 
@@ -84,7 +134,7 @@ impl<A, D> TensorSub<Array<A, D>> for Array<A, D>
 where
     A: Copy + LinalgScalar + Neg<Output = A>,
     D: Dimension,
-    Self: TensorMul<Self, Output = Self> + SameFromScalar<A, Output = Self>,
+    Self: TensorMul<Self, Output = Self> + Container<Elem = A>,
 {}
 
 impl<A, D> TensorElemInv for Array<A, D>
@@ -106,7 +156,13 @@ impl<A, D> TensorDiv<Array<A, D>> for Array<A, D>
 where
     A: LinalgScalar + PartialEq,
     D: Dimension,
-{}
+{
+    type Output = <Self as TensorMul<Array<A, D>>>::Output;
+
+    fn tensor_div(&self, rhs: &Array<A, D>) -> TensorOpResult<<Self as TensorMul<Array<A, D>>>::Output> {
+        self.tensor_mul(&rhs.tensor_elem_inv()?)
+    }
+}
 
 impl<A> Dot<Array2<A>> for Array2<A>
 where
@@ -166,7 +222,59 @@ where
     }
 }
 
-impl<A, D> Tensor<A> for Array<A, D>
+impl<A, D> ReduceSum for Array<A, D>
+where
+    A: Clone + Zero + Add<Output=A>,
+    D: Dimension + RemoveAxis
+{
+    type Output = Array<A, D::Smaller>;
+
+    fn reduce_sum(&self, axis: usize) -> TensorOpResult<Self::Output> {
+        Ok(self.sum_axis(Axis(axis)))
+    }
+}
+
+impl<A, D> ReduceMean for Array<A, D>
+where
+    A: Clone + Zero + One + Add<Output=A> + Div<Output=A>,
+    D: Dimension + RemoveAxis
+{
+    type Output = Array<A, D::Smaller>;
+
+    fn reduce_mean(&self, axis: usize) -> TensorOpResult<Self::Output> {
+        Ok(self.mean_axis(Axis(axis)))
+    }
+}
+
+impl<A, D> TryFrom<Array<A, D>> for NdArrayCommonRepr<A>
+where
+    Array<A, D>: Shape,
+    D: Dimension
+{
+    type Error = String;
+
+    fn try_from(value: Array<A, D>) -> Result<NdArrayCommonRepr<A>, Self::Error> {
+        let shape = <Array<A, D> as Shape>::shape(&value);
+        let data = value.into_raw_vec();
+        Ok(NdArrayCommonRepr::new(data, shape))
+    }
+}
+
+impl<A, D> TryInto<Array<A, D>> for NdArrayCommonRepr<A>
+where
+    D: Dimension
+{
+    type Error = String;
+
+    fn try_into(self) -> Result<Array<A, D>, Self::Error> {
+        Array::<A, _>::from_shape_vec(self.shape, self.data)
+            .map_err(|err| err.to_string())?
+            .into_dimensionality::<D>()
+            .map_err(|err| err.to_string())
+    }
+}
+
+impl<A, D> Tensor for Array<A, D>
 where
     A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialEq,
     D: Dimension,

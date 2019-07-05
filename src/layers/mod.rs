@@ -1,7 +1,6 @@
 mod activation;
-mod layer;
 mod dense;
+mod traits;
 
-pub use layer::{Layer};
-pub use activation::{ActivationLayer};
-pub use dense::{DenseLayer};
+pub use crate::backends::backend::{Backend};
+pub use crate::layers::dense::DenseLayer;

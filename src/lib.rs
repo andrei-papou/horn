@@ -1,3 +1,5 @@
+#![feature(try_from)]
+
 extern crate num_traits;
 extern crate ndarray;
 

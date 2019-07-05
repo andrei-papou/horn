@@ -1,6 +1,3 @@
-use std::ops::{Add, Sub, Mul, Neg};
-use crate::{F64CompliantScalar};
-
 pub type ShapeVec = Vec<usize>;
 pub type TensorOpResult<T> = Result<T, String>;
 
@@ -41,16 +38,13 @@ pub trait TensorElemInv {
     fn tensor_elem_inv(&self) -> TensorOpResult<Self::Output>;
 }
 
-pub trait TensorDiv<Rhs = Self> : TensorMul<Rhs>
-where
-    Rhs: TensorElemInv<Output = Rhs>
-{
-    fn tensor_div(&self, rhs: &Rhs) -> TensorOpResult<<Self as TensorMul<Rhs>>::Output> {
-        self.tensor_mul(&rhs.tensor_elem_inv()?)
-    }
+pub trait TensorDiv<Rhs = Self> {
+    type Output;
+
+    fn tensor_div(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
 }
 
-pub trait Tensor<A>:
+pub trait Tensor:
     TensorAdd<Self, Output = Self> +
     TensorSub<Self, Output = Self> +
     TensorMul<Self, Output = Self> +
@@ -58,7 +52,7 @@ pub trait Tensor<A>:
     TensorElemInv<Output = Self> +
     TensorNeg<Output = Self> +
     Exp +
-    SameFromScalar<A, Output = Self> +
+    Container +
     Shape
 where
     Self: Sized
@@ -76,18 +70,39 @@ where
 pub trait Exp {
     type Output;
 
-    fn exp(&self) -> Self;
+    fn exp(&self) -> Self::Output;
 }
 
-pub trait SameFromScalar<Rhs> {
-    type Output;
+pub trait Container {
+    type Elem;
 
-    fn same_from_scalar(&self, x: Rhs) -> Self::Output;
+    fn same_from_scalar(&self, x: Self::Elem) -> Self;
 }
 
 pub trait Broadcast<To>
-    where
-        Self: Sized
+where
+    Self: Sized
 {
     fn broadcast(&self, to: &To) -> TensorOpResult<To>;
+}
+
+pub trait ReduceSum {
+    type Output;
+
+    fn reduce_sum(&self, axis: usize) -> TensorOpResult<Self::Output>;
+}
+
+pub trait ReduceMean {
+    type Output;
+
+    fn reduce_mean(&self, axis: usize) -> TensorOpResult<Self::Output>;
+}
+
+pub trait Backend {
+    type Scalar;
+    type CommonRepr;
+
+    type Tensor1D;
+    type Tensor2D;
+    type TensorXD;
 }
