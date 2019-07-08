@@ -1,7 +1,8 @@
 pub(crate) mod backend;
 pub(crate) mod ndarray_backend;
 
-pub use backend::{
+pub use crate::backends::backend::{
+    Backend,
     Tensor,
     TensorAdd,
     TensorSub,
@@ -12,5 +13,6 @@ pub use backend::{
     Dot,
     Broadcast,
     Exp,
-    TensorOpResult
+    TensorOpResult,
+    FromShapedData,
 };

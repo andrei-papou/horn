@@ -98,6 +98,18 @@ pub trait ReduceMean {
     fn reduce_mean(&self, axis: usize) -> TensorOpResult<Self::Output>;
 }
 
+pub trait FromShapedData
+where
+    Self: Sized
+{
+    type Error;
+
+    fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Self, Self::Error>;
+}
+
+// TODO: all the trait requirements should live here.
+// TODO: Use separate trait Tensor and bound all the associate types with it.
+// TODO: create also separate trait for CommonRepr, perhaps the name can be the same.
 pub trait Backend {
     type Scalar;
     type CommonRepr;

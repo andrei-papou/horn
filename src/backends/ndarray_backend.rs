@@ -30,6 +30,7 @@ use crate::backends::backend::{
     Shape,
     ReduceSum,
     ReduceMean,
+    FromShapedData,
 };
 use std::convert::{TryInto, TryFrom};
 
@@ -268,6 +269,22 @@ where
 
     fn try_into(self) -> Result<Array<A, D>, Self::Error> {
         Array::<A, _>::from_shape_vec(self.shape, self.data)
+            .map_err(|err| err.to_string())?
+            .into_dimensionality::<D>()
+            .map_err(|err| err.to_string())
+    }
+}
+
+impl<A, D> FromShapedData for Array<A, D>
+where
+    A: From<f64>,
+    D: Dimension,
+{
+    type Error = String;
+
+    fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Array<A, D>, String> {
+        let vec: Vec<A> = data.into_iter().map(|x| A::from(x)).collect();
+        Array::<A, _>::from_shape_vec(shape, vec)
             .map_err(|err| err.to_string())?
             .into_dimensionality::<D>()
             .map_err(|err| err.to_string())
