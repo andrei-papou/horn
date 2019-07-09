@@ -1,8 +1,9 @@
-use std::convert::{TryInto, TryFrom};
-use std::ops::Neg;
-use std::fmt::Display;
+use std::convert::{TryInto};
+
+use num_traits::{One, Zero};
+
 use crate::F64CompliantScalar;
-use num_traits::One;
+use std::fmt::{Debug, Display};
 
 pub type ShapeVec = Vec<usize>;
 pub type TensorOpResult<T> = Result<T, String>;
@@ -50,6 +51,17 @@ pub trait TensorDiv<Rhs = Self> {
     fn tensor_div(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
 }
 
+pub trait MaskCmp : Container
+where
+    <Self as Container>::Elem: PartialOrd
+{
+    type Mask;
+
+    fn mask_lt(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
+    fn mask_gt(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
+    fn mask_eq(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
+}
+
 pub trait Tensor<Scalar, CommonRepr>:
     TensorAdd<Self, Output = Self> +
     TensorSub<Self, Output = Self> +
@@ -59,11 +71,13 @@ pub trait Tensor<Scalar, CommonRepr>:
     TensorNeg<Output = Self> +
     Exp<Output = Self> +
     Container<Elem = Scalar> +
+    MaskCmp<Mask = Self> +
     Shape +
     FromShapedData<Error = String> +
     TryInto<CommonRepr, Error = String>
 where
     Self: Sized,
+    <Self as Container>::Elem: PartialOrd,
 {}
 
 pub trait Dot<Rhs> : Shape
@@ -115,9 +129,15 @@ where
     fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Self, Self::Error>;
 }
 
+pub trait Transpose {
+    type Output;
+
+    fn transpose(&self) -> TensorOpResult<Self::Output>;
+}
+
 pub trait Backend
 where
-    Self::Scalar: F64CompliantScalar + One,
+    Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
     Self::CommonRepr:
         TryInto<Self::Tensor1D, Error = String> +
         TryInto<Self::Tensor2D, Error = String> +
@@ -130,12 +150,15 @@ where
         Tensor<Self::Scalar, Self::CommonRepr> +
         Dot<Self::Tensor2D, Output = Self::Tensor2D> +
         ReduceSum<Output = Self::Tensor1D> +
-        ReduceMean<Output = Self::Tensor1D>,
+        ReduceMean<Output = Self::Tensor1D> +
+        Transpose<Output = Self::Tensor2D>,
     Self::TensorXD:
         Tensor<Self::Scalar, Self::CommonRepr> +
         Broadcast<Self::TensorXD> +
         ReduceSum<Output = Self::TensorXD> +
-        ReduceMean<Output = Self::TensorXD>,
+        ReduceMean<Output = Self::TensorXD> +
+        Display +
+        Debug,
 {
     type Scalar;
     type CommonRepr;

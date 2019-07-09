@@ -1,23 +1,33 @@
-use crate::num_traits::{One};
-use crate::{F64CompliantScalar};
-use crate::common::{Name};
+use std::marker::PhantomData;
+use std::collections::HashMap;
+use std::convert::TryInto;
+
+use crate::num_traits::{One, Zero};
+use crate::serde::{Serialize, Deserialize};
+use crate::serde_json::{from_value, Value};
+
+use crate::common::{Name, string_err::err_to_string};
 use crate::backends::backend::{
     TensorAdd,
     TensorSub,
+    TensorMul,
     TensorDiv,
     TensorNeg,
-    TensorElemInv,
     Container,
     Broadcast,
     Exp,
     TensorOpResult,
     ReduceSum,
-    Backend
+    Backend,
+    Shape,
+    MaskCmp,
 };
-use crate::layers::traits::Apply;
-use std::ops::{Div, Neg};
-use std::marker::PhantomData;
-use std::convert::TryInto;
+use crate::layers::traits::{Apply, FromJson};
+
+#[derive(Serialize, Deserialize)]
+struct GenericActivationSpec {
+    name: String
+}
 
 pub struct Sigmoid<B: Backend>(String, PhantomData<B>);
 
@@ -39,6 +49,17 @@ impl<B: Backend> Apply<B> for Sigmoid<B> {
         let ones = x.same_from_scalar(<B::TensorXD as Container>::Elem::one());
         let denom = ones.tensor_add(&x.tensor_neg()?.exp())?;
         ones.tensor_div(&denom)?.try_into()
+    }
+}
+
+impl<B: Backend> FromJson for Sigmoid<B> {
+    const TYPE: &'static str = "Sigmoid";
+
+    type Error = String;
+
+    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> Result<Self, String> {
+        let spec: GenericActivationSpec = from_value(json.clone()).map_err(err_to_string)?;
+        Ok(Sigmoid::new(spec.name))
     }
 }
 
@@ -65,14 +86,57 @@ impl<B: Backend> Apply<B> for Tanh<B> {
     }
 }
 
+impl<B: Backend> FromJson for Tanh<B> {
+    const TYPE: &'static str = "Tanh";
+
+    type Error = String;
+
+    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> Result<Self, String> {
+        let spec: GenericActivationSpec = from_value(json.clone()).map_err(err_to_string)?;
+        Ok(Tanh::new(spec.name))
+    }
+}
+
+pub struct Relu<B: Backend>(String, PhantomData<B>);
+
+impl<B: Backend> Relu<B> {
+    fn new(name: String) -> Relu<B> {
+        Relu(name, PhantomData::<B>)
+    }
+}
+
+impl<B: Backend> Name for Relu<B> {
+    fn name(&self) -> &String {
+        &self.0
+    }
+}
+
+impl<B: Backend> Apply<B> for Relu<B> {
+    fn apply(&self, x: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
+        let x: B::TensorXD = x.try_into()?;
+        x.tensor_mul(&x.mask_gt(<B::TensorXD as Container>::Elem::zero())?)?.try_into()
+    }
+}
+
+impl<B: Backend> FromJson for Relu<B> {
+    const TYPE: &'static str = "Relu";
+
+    type Error = String;
+
+    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> Result<Self, String> {
+        let spec: GenericActivationSpec = from_value(json.clone()).map_err(err_to_string)?;
+        Ok(Relu::new(spec.name))
+    }
+}
+
 pub struct Softmax<B: Backend> {
     name: String,
-    axis: usize,
+    axis: Option<usize>,
     _backend: PhantomData<B>,
 }
 
 impl<B: Backend> Softmax<B> {
-    pub fn new(name: String, axis: usize) -> Softmax<B> {
+    pub fn new(name: String, axis: Option<usize>) -> Softmax<B> {
         Softmax {
             name,
             axis,
@@ -90,7 +154,27 @@ impl<B: Backend> Name for Softmax<B> {
 impl<B: Backend> Apply<B> for Softmax<B> {
     fn apply(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
         let x: B::TensorXD = input.try_into()?;
-        x.tensor_div(&x.reduce_sum(self.axis)?.broadcast(&x)?)?.try_into()
+        let axis = self.axis.unwrap_or(<B::TensorXD as Shape>::shape(&x).len() - 1usize);
+        let x = x.exp();
+        println!("{}", x);
+        x.tensor_div(&x.reduce_sum(axis)?.broadcast(&x)?)?.try_into()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SoftmaxSpec {
+    name: String,
+    axis: Option<u64>,
+}
+
+impl<B: Backend> FromJson for Softmax<B> {
+    const TYPE: &'static str = "Softmax";
+
+    type Error = String;
+
+    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> Result<Self, String> {
+        let spec: SoftmaxSpec = from_value(json.clone()).map_err(err_to_string)?;
+        Ok(Softmax::new(spec.name, spec.axis.map(|x| x as usize)))
     }
 }
 
@@ -121,12 +205,37 @@ mod tests {
     }
 
     #[test]
-    fn test_softmax() {
-        let arr: Array2<f64> = array![[0.5, 1.5], [3.0, 3.0]];
-        let layer = Softmax::<NdArrayBackend<_>>::new(String::from("softmax"), 1);
+    fn test_relu() {
+        let arr: Array2<f64> = array![[-4.2, 1.0], [4.3, -2.0]];
+        let layer = Relu::<NdArrayBackend<_>>::new(String::from("relu"));
         let output = layer.apply(arr.try_into().unwrap());
         assert!(output.is_ok());
         let output: Array2<f64> = output.unwrap().try_into().unwrap();
-        assert_eq!(output, array![[0.25, 0.75], [0.5, 0.5]]);
+        assert_eq!(output, array![[0.0, 1.0], [4.3, 0.0]]);
+    }
+
+    #[cfg(test)]
+    mod softmax {
+        use super::*;
+
+        #[test]
+        fn test_with_axis() {
+            let arr: Array2<f64> = array![[0.5, 1.5], [3.0, 3.0]];
+            let layer = Softmax::<NdArrayBackend<_>>::new(String::from("softmax"), Some(1));
+            let output = layer.apply(arr.try_into().unwrap());
+            assert!(output.is_ok());
+            let output: Array2<f64> = output.unwrap().try_into().unwrap();
+            assert_eq!(output, array![[0.25, 0.75], [0.5, 0.5]]);
+        }
+
+        #[test]
+        fn test_without_axis() {
+            let arr: Array2<f64> = array![[0.5, 1.5], [3.0, 3.0]];
+            let layer = Softmax::<NdArrayBackend<_>>::new(String::from("softmax"), None);
+            let output = layer.apply(arr.try_into().unwrap());
+            assert!(output.is_ok());
+            let output: Array2<f64> = output.unwrap().try_into().unwrap();
+            assert_eq!(output, array![[0.25, 0.75], [0.5, 0.5]]);
+        }
     }
 }

@@ -1,12 +1,20 @@
 use std::convert::{TryInto};
 use std::collections::HashMap;
 
-use crate::serde_json::{Value, Map};
+use crate::serde::{Serialize, Deserialize};
+use crate::serde_json::{Value, from_value};
 
 use crate::common::{Name};
-use crate::common::json_parser::{JsonParser};
-use crate::common::string_err::{err_to_string, join};
-use crate::backends::backend::{Backend, TensorAdd, Dot, Broadcast, TensorOpResult, FromShapedData};
+use crate::common::string_err::{err_to_string};
+use crate::backends::backend::{
+    Backend,
+    TensorAdd,
+    Dot,
+    Broadcast,
+    TensorOpResult,
+    FromShapedData,
+    Transpose,
+};
 use super::traits::{Apply, FromJson};
 
 pub struct DenseLayer<B: Backend> {
@@ -47,20 +55,27 @@ impl<B: Backend> Apply<B> for DenseLayer<B> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct DenseLayerSpec {
+    name: String,
+    w_shape: Vec<u64>,
+    w_id: u64,
+    b_shape: Option<Vec<u64>>,
+    b_id: Option<u64>,
+}
+
 impl<B: Backend> FromJson for DenseLayer<B> {
     const TYPE: &'static str = "Dense";
     type Error = String;
 
-    fn from_json(spec: &Map<String, Value>, weights: &mut HashMap<u16, Vec<f64>>) -> Result<DenseLayer<B>, String> {
-        let p = JsonParser::new("DenseLayer::from_json");
+    fn from_json(json: &Value, weights: &mut HashMap<u16, Vec<f64>>) -> Result<DenseLayer<B>, String> {
+        let spec: DenseLayerSpec = from_value(json.clone()).map_err(err_to_string)?;
+        let w_shape: Vec<usize> = spec.w_shape.into_iter().map(|x| x as usize).collect();
+        let w_id = spec.w_id as u16;
+        let b_shape: Option<Vec<usize>> = spec.b_shape
+            .map(|v| v.into_iter().map(|x| x as usize).collect());
+        let b_id = spec.b_id.map(|x| x as u16);
 
-        // TODO: replace explicit parsing with DenseLayerSpec struct + built-in parsing by Serde
-        let name = p.unwrap_string_key(spec, "name")?.to_string();
-        let w_shape = p.unwrap_array_key(spec, "w_shape")?.iter()
-            .enumerate()
-            .map(|(i, v)| p.unwrap_u64(v, &format!("w_shape[{}]", i)).map(|x| x as usize))
-            .collect::<Result<Vec<usize>, String>>()?;
-        let w_id = p.unwrap_u64_key(spec, "w_id")? as u16;
         let w_data = match weights.remove(&w_id) {
             Some(v) => v,
             None => return Err(format!("Missing weights for wid \"{}\".", w_id))
@@ -68,20 +83,16 @@ impl<B: Backend> FromJson for DenseLayer<B> {
         let w = B::Tensor2D::from_shaped_data(w_data, w_shape).map_err(err_to_string)?;
 
         let mut b: Option<B::Tensor1D> = None;
-        if !spec["b_shape"].is_null() {
-            let b_shape = p.unwrap_array_key(spec, "b_shape")?.iter()
-                .enumerate()
-                .map(|(i, v)| p.unwrap_u64(v, &format!("b_shape[{}]", i)).map(|x| x as usize))
-                .collect::<Result<Vec<usize>, String>>()?;
-            let b_id = p.unwrap_u64_key(spec, "b_id")? as u16;
+        if b_id.is_some() {
+            let b_id = b_id.unwrap();
             let b_data = match weights.remove(&b_id) {
                 Some(v) => v,
                 None => return Err(format!("Missing weights for wid \"{}\".", b_id))
             };
-            b = Some(B::Tensor1D::from_shaped_data(b_data, b_shape).map_err(err_to_string)?);
+            b = Some(B::Tensor1D::from_shaped_data(b_data, b_shape.unwrap()).map_err(err_to_string)?);
         }
 
-        Ok(DenseLayer::new(name, w, b))
+        Ok(DenseLayer::new(spec.name, w, b))
     }
 }
 

@@ -1,26 +1,22 @@
 use std::collections::HashMap;
-use std::convert::TryInto;
-use std::error::Error;
 use std::io::{BufReader, Read, Cursor, Error as IOError};
 use std::fs::File;
 
 use crate::byteorder::{NativeEndian, ReadBytesExt};
-use crate::serde_json::{
-    from_str as json_from_str,
-    Result as SDResult,
-    Value
-};
+use crate::serde_json::{from_str as json_from_str, Value};
 
-use crate::backends::{
-    Dot,
-    TensorAdd,
-    Broadcast,
-    Backend,
-    FromShapedData
-};
+use crate::backends::{Backend, TensorOpResult};
 use crate::common::json_parser::JsonParser;
 use crate::common::string_err::{err_to_string, join};
-use crate::layers::{Apply, DenseLayer, FromJson};
+use crate::layers::{
+    Apply,
+    DenseLayer,
+    FromJson,
+    Sigmoid,
+    Softmax,
+    Tanh,
+    Relu,
+};
 
 const BYTES_PER_ENTRY_SIZE: usize = 4;
 const BYTES_PER_WEIGHT_ID: usize = 2;
@@ -43,7 +39,8 @@ fn read_wid(reader: &mut BufReader<File>) -> Result<u16, IOError> {
     Cursor::new(buffer).read_u16::<NativeEndian>()
 }
 
-fn read_weights(reader: &mut BufReader<File>, len: usize) -> Result<Vec<f64>, IOError> {
+fn read_weights(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<f64>, IOError> {
+    let len = num_bytes / F64_SIZE;
     let mut weights = Vec::with_capacity(len);
     for _ in 0..len {
         let mut buffer = [0u8; F64_SIZE];
@@ -79,17 +76,7 @@ pub struct Model<'a, B: Backend + 'a> {
 }
 
 impl<'a, B: Backend + 'a> Model<'a, B> {
-    pub fn from_file(file_path: &str) -> Result<Model<B>, String>
-    where
-        B::CommonRepr: TryInto<B::Tensor2D, Error = String>,
-        B::Tensor2D: Dot<B::Tensor2D> + FromShapedData,
-        <B::Tensor2D as Dot<B::Tensor2D>>::Output:
-            TensorAdd<Output = <B::Tensor2D as Dot<B::Tensor2D>>::Output> +
-            TryInto<B::CommonRepr, Error = String>,
-        B::Tensor1D: Broadcast<<B::Tensor2D as Dot<B::Tensor2D>>::Output> + FromShapedData,
-        <B::Tensor2D as FromShapedData>::Error: ToString,
-        <B::Tensor1D as FromShapedData>::Error: ToString,
-    {
+    pub fn from_file(file_path: &str) -> Result<Model<B>, String> {
         let error_path = "Model::from_file";
         let p = JsonParser::new(error_path);
 
@@ -103,14 +90,22 @@ impl<'a, B: Backend + 'a> Model<'a, B> {
         for lo in layer_objects {
             let layer_obj = p.unwrap_object(lo, "layer")?;
             let layer_type = p.unwrap_string_key(layer_obj, "type")?;
-            match layer_type.as_ref() {
-                DenseLayer::<B>::TYPE => {
-                    layers.push(Box::new(DenseLayer::<B>::from_json(layer_obj, &mut model_data.weights)?));
-                },
+
+            layers.push(match layer_type.as_ref() {
+                DenseLayer::<B>::TYPE => Box::new(DenseLayer::<B>::from_json(lo, &mut model_data.weights)?),
+                Sigmoid::<B>::TYPE => Box::new(Sigmoid::<B>::from_json(lo, &mut model_data.weights)?),
+                Softmax::<B>::TYPE => Box::new(Softmax::<B>::from_json(lo, &mut model_data.weights)?),
+                Tanh::<B>::TYPE => Box::new(Tanh::<B>::from_json(lo, &mut model_data.weights)?),
+                Relu::<B>::TYPE => Box::new(Relu::<B>::from_json(lo, &mut model_data.weights)?),
                 _ => return Err(join(format!("Unknown layer type: {}", layer_type), error_path)),
-            }
+            });
         }
 
         Ok(Model { name, layers })
+    }
+
+    pub fn run(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
+        self.layers.iter()
+            .fold(Ok(input), |prev_out, layer| prev_out.and_then(|x| layer.apply(x)))
     }
 }

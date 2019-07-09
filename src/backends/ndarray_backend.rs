@@ -1,3 +1,4 @@
+use std::fmt::{Display, Debug};
 use std::marker::PhantomData;
 use std::ops::{Neg, Div, Add};
 use std::convert::{TryInto, TryFrom};
@@ -11,7 +12,6 @@ use crate::ndarray::{
     LinalgScalar,
     Dimension,
     RemoveAxis,
-    ScalarOperand,
 };
 use crate::{F64CompliantScalar};
 use crate::backends::backend::{
@@ -33,20 +33,13 @@ use crate::backends::backend::{
     ReduceSum,
     ReduceMean,
     FromShapedData,
+    MaskCmp,
+    Transpose,
 };
 use crate::common::string_err::err_to_string;
-use std::fmt::Display;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
-}
-
-impl<A> NdArrayBackend<A> {
-    fn new() -> NdArrayBackend<A> {
-        NdArrayBackend {
-            _marker: PhantomData::<A>
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -81,7 +74,7 @@ where
 
 impl<A> Backend for NdArrayBackend<A>
 where
-    A: LinalgScalar + F64CompliantScalar + Neg<Output = A> + PartialEq
+    A: LinalgScalar + F64CompliantScalar + Neg<Output = A> + PartialOrd + Display + Debug
 {
     type Scalar = A;
     type CommonRepr = NdArrayCommonRepr<A>;
@@ -186,6 +179,34 @@ where
     }
 }
 
+impl<A, D> MaskCmp for Array<A, D>
+where
+    A: PartialOrd + One + Zero + Clone,
+    D: Dimension,
+{
+    type Mask = Array<A, D>;
+
+    fn mask_lt(&self, x: A) -> TensorOpResult<Self::Mask> {
+        Ok(self.map(|a| if *a < x { A::one() } else { A::zero() }))
+    }
+
+    fn mask_gt(&self, x: A) -> TensorOpResult<Self::Mask> {
+        Ok(self.map(|a| if *a > x { A::one() } else { A::zero() }))
+    }
+
+    fn mask_eq(&self, x: A) -> TensorOpResult<Self::Mask> {
+        Ok(self.map(|a| if *a == x { A::one() } else { A::zero() }))
+    }
+}
+
+impl<A: Clone> Transpose for Array2<A> {
+    type Output = Array2<A>;
+
+    fn transpose(&self) -> TensorOpResult<Array2<A>> {
+        Ok(self.t().to_owned())
+    }
+}
+
 impl<A> Dot<Array2<A>> for Array2<A>
 where
     A: LinalgScalar
@@ -224,7 +245,7 @@ where
     D: Dimension,
 {
     fn broadcast(&self, rhs: &Array<A, D::Larger>) -> TensorOpResult<Array<A, D::Larger>> {
-        match self.clone().insert_axis(Axis(self.ndim())).broadcast(rhs.dim()).map(|x| x.to_owned()) {
+        match self.clone().insert_axis(Axis(0)).broadcast(rhs.dim()).map(|x| x.to_owned()) {
             Some(result) => Ok(result),
             None => Err(format!(
                 "Cannot broadcast {:?} to {:?}.",
@@ -314,6 +335,6 @@ where
 
 impl<A, D> Tensor<A, NdArrayCommonRepr<A>> for Array<A, D>
 where
-    A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialEq,
+    A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialOrd,
     D: Dimension,
 {}

@@ -16,7 +16,7 @@ impl<'a> JsonParser<'a> {
 
     pub fn get_map_key<'b>(&self, map: &'b Map<String, Value>, key: &'b str) -> Result<&'b Value, String> {
         map.get(key).into_result()
-            .map_err(|e| join(format!("\"{}\" is required.", key), self.err_path))
+            .map_err(|_e| join(format!("\"{}\" is required.", key), self.err_path))
     }
 
     pub fn unwrap_u64_key(&self, map: &Map<String, Value>, key: &str) -> Result<u64, String> {
