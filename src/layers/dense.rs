@@ -31,18 +31,9 @@ impl<B: Backend> Name for DenseLayer<B> {
     }
 }
 
-impl<B: Backend> Apply<B> for DenseLayer<B>
-where
-    B::CommonRepr: TryInto<B::Tensor2D, Error = String>,
-    B::Tensor2D: Dot<B::Tensor2D>,
-    <B::Tensor2D as Dot<B::Tensor2D>>::Output:
-        TensorAdd<Output = <B::Tensor2D as Dot<B::Tensor2D>>::Output> +
-        TryInto<B::CommonRepr, Error = String>,
-    B::Tensor1D:
-        Broadcast<<B::Tensor2D as Dot<B::Tensor2D>>::Output>
-{
+impl<B: Backend> Apply<B> for DenseLayer<B> {
     fn apply(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
-        let input: B::Tensor2D = input.try_into()?;
+        let input = <B::CommonRepr as TryInto<B::Tensor2D>>::try_into(input)?;
         let z = input.dot(&self.weights)?;
         let result = match &self.bias {
             Some(bias) => {
@@ -56,13 +47,7 @@ where
     }
 }
 
-impl<B: Backend> FromJson for DenseLayer<B>
-where
-    B::Tensor2D: FromShapedData,
-    <B::Tensor2D as FromShapedData>::Error: ToString,
-    B::Tensor1D: FromShapedData,
-    <B::Tensor1D as FromShapedData>::Error: ToString,
-{
+impl<B: Backend> FromJson for DenseLayer<B> {
     const TYPE: &'static str = "Dense";
     type Error = String;
 

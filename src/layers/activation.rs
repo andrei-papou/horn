@@ -33,23 +33,7 @@ impl<B: Backend> Name for Sigmoid<B> {
     }
 }
 
-impl<B: Backend> Apply<B> for Sigmoid<B>
-where
-    B::CommonRepr: TryInto<B::TensorXD, Error = String>,
-    B::TensorXD:
-        Container +
-        TensorNeg<Output = B::TensorXD> +
-        Exp<Output = B::TensorXD> +
-        TensorAdd<Output = B::TensorXD> +
-        TensorDiv<Output = B::TensorXD> +
-        TensorElemInv<Output = B::TensorXD> +
-        TryInto<B::CommonRepr, Error = String>,
-    <B::TensorXD as Container>::Elem:
-        F64CompliantScalar +
-        Copy +
-        One +
-        Div<Output = <B::TensorXD as Container>::Elem>,
-{
+impl<B: Backend> Apply<B> for Sigmoid<B> {
     fn apply(&self, x: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
         let x: B::TensorXD = x.try_into()?;
         let ones = x.same_from_scalar(<B::TensorXD as Container>::Elem::one());
@@ -72,20 +56,7 @@ impl<B: Backend> Name for Tanh<B> {
     }
 }
 
-impl<B: Backend> Apply<B> for Tanh<B>
-where
-    B::CommonRepr: TryInto<B::TensorXD, Error = String>,
-    B::TensorXD:
-        Container +
-        Exp<Output = B::TensorXD> +
-        TensorNeg<Output = B::TensorXD> +
-        TensorAdd<Output = B::TensorXD> +
-        TensorSub<Output = B::TensorXD> +
-        TensorDiv<Output = B::TensorXD> +
-        TensorElemInv<Output = B::TensorXD> +
-        TryInto<B::CommonRepr, Error = String>,
-    <B::TensorXD as Container>::Elem: Neg,
-{
+impl<B: Backend> Apply<B> for Tanh<B> {
     fn apply(&self, x: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
         let x: B::TensorXD = x.try_into()?;
         let exp = x.exp();
@@ -116,16 +87,7 @@ impl<B: Backend> Name for Softmax<B> {
     }
 }
 
-impl<B: Backend> Apply<B> for Softmax<B>
-where
-    B::CommonRepr: TryInto<B::TensorXD, Error = String>,
-    B::TensorXD:
-        Container +
-        ReduceSum +
-        TensorDiv<Output = B::TensorXD> +
-        TryInto<B::CommonRepr, Error = String>,
-    <B::TensorXD as ReduceSum>::Output: Broadcast<B::TensorXD>,
-{
+impl<B: Backend> Apply<B> for Softmax<B> {
     fn apply(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
         let x: B::TensorXD = input.try_into()?;
         x.tensor_div(&x.reduce_sum(self.axis)?.broadcast(&x)?)?.try_into()

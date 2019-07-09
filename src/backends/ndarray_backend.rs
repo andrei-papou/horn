@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::{Neg, Div, Add};
+use std::convert::{TryInto, TryFrom};
 use crate::num_traits::identities::{One, Zero};
 use crate::ndarray::{
     Array,
@@ -9,7 +10,8 @@ use crate::ndarray::{
     Axis,
     LinalgScalar,
     Dimension,
-    RemoveAxis
+    RemoveAxis,
+    ScalarOperand,
 };
 use crate::{F64CompliantScalar};
 use crate::backends::backend::{
@@ -32,7 +34,8 @@ use crate::backends::backend::{
     ReduceMean,
     FromShapedData,
 };
-use std::convert::{TryInto, TryFrom};
+use crate::common::string_err::err_to_string;
+use std::fmt::Display;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -61,7 +64,25 @@ impl<A> NdArrayCommonRepr<A> {
     }
 }
 
-impl<A> Backend for NdArrayBackend<A> {
+impl<A> FromShapedData for NdArrayCommonRepr<A>
+where
+    A: TryFrom<f64>,
+    <A as TryFrom<f64>>::Error: ToString + Display,
+{
+    type Error = String;
+
+    fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Self, String> {
+        let data = data.into_iter()
+            .map(|x| A::try_from(x).map_err(err_to_string))
+            .collect::<Result<Vec<A>, String>>()?;
+        Ok(NdArrayCommonRepr::new(data, shape))
+    }
+}
+
+impl<A> Backend for NdArrayBackend<A>
+where
+    A: LinalgScalar + F64CompliantScalar + Neg<Output = A> + PartialEq
+{
     type Scalar = A;
     type CommonRepr = NdArrayCommonRepr<A>;
 
@@ -197,13 +218,13 @@ where
     }
 }
 
-impl<A, D> Broadcast<Array<A, D>> for Array<A, D::Smaller>
+impl<A, D> Broadcast<Array<A, D::Larger>> for Array<A, D>
 where
     A: Clone,
     D: Dimension,
 {
-    fn broadcast(&self, rhs: &Array<A, D>) -> TensorOpResult<Array<A, D>> {
-        match self.clone().insert_axis(Axis(1)).broadcast(rhs.dim()).map(|x| x.to_owned()) {
+    fn broadcast(&self, rhs: &Array<A, D::Larger>) -> TensorOpResult<Array<A, D::Larger>> {
+        match self.clone().insert_axis(Axis(self.ndim())).broadcast(rhs.dim()).map(|x| x.to_owned()) {
             Some(result) => Ok(result),
             None => Err(format!(
                 "Cannot broadcast {:?} to {:?}.",
@@ -291,7 +312,7 @@ where
     }
 }
 
-impl<A, D> Tensor for Array<A, D>
+impl<A, D> Tensor<A, NdArrayCommonRepr<A>> for Array<A, D>
 where
     A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialEq,
     D: Dimension,
