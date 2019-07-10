@@ -108,6 +108,15 @@ where
     fn broadcast(&self, to: &To) -> TensorOpResult<To>;
 }
 
+pub trait Reshape
+where
+    Self: Sized
+{
+    type Output;
+
+    fn reshape(&self, new_shape: ShapeVec) -> TensorOpResult<Self::Output>;
+}
+
 pub trait ReduceSum {
     type Output;
 
@@ -145,16 +154,19 @@ where
         FromShapedData<Error = String>,
     Self::Tensor1D:
         Tensor<Self::Scalar, Self::CommonRepr> +
-        Broadcast<Self::Tensor2D>,
+        Broadcast<Self::Tensor2D> +
+        Reshape<Output = Self::TensorXD>,
     Self::Tensor2D:
         Tensor<Self::Scalar, Self::CommonRepr> +
         Dot<Self::Tensor2D, Output = Self::Tensor2D> +
+        Reshape<Output = Self::TensorXD> +
         ReduceSum<Output = Self::Tensor1D> +
         ReduceMean<Output = Self::Tensor1D> +
         Transpose<Output = Self::Tensor2D>,
     Self::TensorXD:
         Tensor<Self::Scalar, Self::CommonRepr> +
         Broadcast<Self::TensorXD> +
+        Reshape<Output = Self::TensorXD> +
         ReduceSum<Output = Self::TensorXD> +
         ReduceMean<Output = Self::TensorXD> +
         Display +

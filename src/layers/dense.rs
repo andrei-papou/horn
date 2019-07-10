@@ -116,7 +116,7 @@ mod tests {
         let weights: Array2<f64> = array![[0.0, 1.0, 0.0], [1.0, 0.0, 1.0]];
         let bias: Array1<f64> = array![1.0, -1.0, 1.0];
         let input: Array2<f64> = array![[2.0, 5.0], [7.0, 1.0], [4.0, 3.0]];
-        let expected_output: Array2<f64> = array![[6.0, 3.0, 6.0], [0.0, 6.0, 0.0], [4.0, 5.0, 4.0]];
+        let expected_output: Array2<f64> = array![[6.0, 1.0, 6.0], [2.0, 6.0, 2.0], [4.0, 3.0, 4.0]];
         let layer = DenseLayer::<NdArrayBackend<_>>::new(String::from("layer_1"), weights, Some(bias));
         let output = layer.apply(input.try_into().unwrap());
         assert!(output.is_ok());

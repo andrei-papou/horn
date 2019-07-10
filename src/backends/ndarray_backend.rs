@@ -35,8 +35,10 @@ use crate::backends::backend::{
     FromShapedData,
     MaskCmp,
     Transpose,
+    Reshape,
 };
 use crate::common::string_err::err_to_string;
+use std::error::Error;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -245,7 +247,7 @@ where
     D: Dimension,
 {
     fn broadcast(&self, rhs: &Array<A, D::Larger>) -> TensorOpResult<Array<A, D::Larger>> {
-        match self.clone().insert_axis(Axis(0)).broadcast(rhs.dim()).map(|x| x.to_owned()) {
+        match self.clone().broadcast(rhs.dim()).map(|x| x.to_owned()) {
             Some(result) => Ok(result),
             None => Err(format!(
                 "Cannot broadcast {:?} to {:?}.",
@@ -253,6 +255,18 @@ where
                 Shape::shape(rhs),
             ))
         }
+    }
+}
+
+impl<A, D> Reshape for Array<A, D>
+where
+    A: Clone,
+    D: Dimension,
+{
+    type Output = ArrayD<A>;
+
+    fn reshape(&self, new_shape: ShapeVec) -> TensorOpResult<ArrayD<A>> {
+        self.clone().into_shape(new_shape).map_err(|e| e.to_string())
     }
 }
 

@@ -21,6 +21,8 @@ use crate::backends::backend::{
     Backend,
     Shape,
     MaskCmp,
+    ShapeVec,
+    Reshape,
 };
 use crate::layers::traits::{Apply, FromJson};
 
@@ -154,10 +156,11 @@ impl<B: Backend> Name for Softmax<B> {
 impl<B: Backend> Apply<B> for Softmax<B> {
     fn apply(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr> {
         let x: B::TensorXD = input.try_into()?;
-        let axis = self.axis.unwrap_or(<B::TensorXD as Shape>::shape(&x).len() - 1usize);
+        let mut shape: ShapeVec = <B::TensorXD as Shape>::shape(&x);
+        let axis = self.axis.unwrap_or(shape.len() - 1usize);
+        shape[axis] = 1;
         let x = x.exp();
-        println!("{}", x);
-        x.tensor_div(&x.reduce_sum(axis)?.broadcast(&x)?)?.try_into()
+        x.tensor_div(&x.reduce_sum(axis)?.reshape(shape)?.broadcast(&x)?)?.try_into()
     }
 }
 
@@ -225,7 +228,15 @@ mod tests {
             let output = layer.apply(arr.try_into().unwrap());
             assert!(output.is_ok());
             let output: Array2<f64> = output.unwrap().try_into().unwrap();
-            assert_eq!(output, array![[0.25, 0.75], [0.5, 0.5]]);
+            let e11 = 0.5f64.exp();
+            let e12 = 1.5f64.exp();
+            let e21 = 3.0f64.exp();
+            let e22 = 3.0f64.exp();
+            let exp_output: Array2<f64> = array![
+                [e11 / (e11 + e12), e12 / (e11 + e12)],
+                [e21 / (e21 + e22), e22 / (e21 + e22)]
+            ];
+            assert!(output.iter().zip(exp_output.iter()).all(|(e1, e2)| (e1 - e2) < 0.00001));
         }
 
         #[test]
@@ -235,7 +246,15 @@ mod tests {
             let output = layer.apply(arr.try_into().unwrap());
             assert!(output.is_ok());
             let output: Array2<f64> = output.unwrap().try_into().unwrap();
-            assert_eq!(output, array![[0.25, 0.75], [0.5, 0.5]]);
+            let e11 = 0.5f64.exp();
+            let e12 = 1.5f64.exp();
+            let e21 = 3.0f64.exp();
+            let e22 = 3.0f64.exp();
+            let exp_output: Array2<f64> = array![
+                [e11 / (e11 + e12), e12 / (e11 + e12)],
+                [e21 / (e21 + e22), e22 / (e21 + e22)]
+            ];
+            assert!(output.iter().zip(exp_output.iter()).all(|(e1, e2)| (e1 - e2) < 0.00001));
         }
     }
 }
