@@ -1,5 +1,4 @@
-mod traits;
-pub mod json_parser;
-pub mod string_err;
+pub mod traits;
+pub mod types;
 
-pub use crate::common::traits::{Name};
+pub use crate::common::traits::Name;

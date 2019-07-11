@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 
-use crate::serde_json::{Value};
+use crate::serde_json::Value;
 
-use crate::backends::backend::{TensorOpResult, Backend};
+use crate::backends::backend::Backend;
+use crate::common::types::HResult;
 
 pub trait Apply<B: Backend> {
-    fn apply(&self, input: B::CommonRepr) -> TensorOpResult<B::CommonRepr>;
+    fn apply(&self, input: B::CommonRepr) -> HResult<B::CommonRepr>;
 }
 
 pub trait FromJson
 where
-    Self: Sized
+    Self: Sized,
 {
     const TYPE: &'static str;
 

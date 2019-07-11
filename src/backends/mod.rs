@@ -1,18 +1,8 @@
 pub(crate) mod backend;
-pub(crate) mod ndarray_backend;
+pub(crate) mod ndarray;
 
-pub use crate::backends::backend::{
-    Backend,
-    Tensor,
-    TensorAdd,
-    TensorSub,
-    TensorNeg,
-    TensorDiv,
-    TensorElemInv,
-    Container,
-    Dot,
-    Broadcast,
-    Exp,
-    TensorOpResult,
-    FromShapedData,
+pub use self::ndarray::{NdArrayBackend, NdArrayCommonRepr};
+pub(crate) use crate::backends::backend::{
+    Backend, Broadcast, Container, Dot, Exp, FromShapedData, Tensor, TensorAdd, TensorDiv,
+    TensorElemInv, TensorNeg, TensorSub,
 };

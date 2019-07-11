@@ -1,12 +1,12 @@
-use std::convert::{TryInto};
+use std::convert::TryInto;
+use std::fmt::{Debug, Display};
 
 use num_traits::{One, Zero};
 
-use crate::F64CompliantScalar;
-use std::fmt::{Debug, Display};
+use crate::common::traits::F64CompliantScalar;
+use crate::common::types::{HError, HResult};
 
 pub type ShapeVec = Vec<usize>;
-pub type TensorOpResult<T> = Result<T, String>;
 
 pub trait Shape {
     fn shape(&self) -> ShapeVec;
@@ -15,20 +15,20 @@ pub trait Shape {
 pub trait TensorAdd<Rhs = Self> {
     type Output;
 
-    fn tensor_add(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
+    fn tensor_add(&self, rhs: &Rhs) -> HResult<Self::Output>;
 }
 
 pub trait TensorNeg {
     type Output;
 
-    fn tensor_neg(&self) -> TensorOpResult<Self::Output>;
+    fn tensor_neg(&self) -> HResult<Self::Output>;
 }
 
-pub trait TensorSub<Rhs = Self> : TensorAdd<Rhs>
+pub trait TensorSub<Rhs = Self>: TensorAdd<Rhs>
 where
-    Rhs: TensorNeg<Output = Rhs>
+    Rhs: TensorNeg<Output = Rhs>,
 {
-    fn tensor_sub(&self, rhs: &Rhs) -> TensorOpResult<<Self as TensorAdd<Rhs>>::Output> {
+    fn tensor_sub(&self, rhs: &Rhs) -> HResult<<Self as TensorAdd<Rhs>>::Output> {
         self.tensor_add(&rhs.tensor_neg()?)
     }
 }
@@ -36,57 +36,58 @@ where
 pub trait TensorMul<Rhs = Self> {
     type Output;
 
-    fn tensor_mul(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
+    fn tensor_mul(&self, rhs: &Rhs) -> HResult<Self::Output>;
 }
 
 pub trait TensorElemInv {
     type Output;
 
-    fn tensor_elem_inv(&self) -> TensorOpResult<Self::Output>;
+    fn tensor_elem_inv(&self) -> HResult<Self::Output>;
 }
 
 pub trait TensorDiv<Rhs = Self> {
     type Output;
 
-    fn tensor_div(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
+    fn tensor_div(&self, rhs: &Rhs) -> HResult<Self::Output>;
 }
 
-pub trait MaskCmp : Container
+pub trait MaskCmp: Container
 where
-    <Self as Container>::Elem: PartialOrd
+    <Self as Container>::Elem: PartialOrd,
 {
     type Mask;
 
-    fn mask_lt(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
-    fn mask_gt(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
-    fn mask_eq(&self, x: <Self as Container>::Elem) -> TensorOpResult<Self::Mask>;
+    fn mask_lt(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
+    fn mask_gt(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
+    fn mask_eq(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
 }
 
 pub trait Tensor<Scalar, CommonRepr>:
-    TensorAdd<Self, Output = Self> +
-    TensorSub<Self, Output = Self> +
-    TensorMul<Self, Output = Self> +
-    TensorDiv<Self, Output = Self> +
-    TensorElemInv<Output = Self> +
-    TensorNeg<Output = Self> +
-    Exp<Output = Self> +
-    Container<Elem = Scalar> +
-    MaskCmp<Mask = Self> +
-    Shape +
-    FromShapedData<Error = String> +
-    TryInto<CommonRepr, Error = String>
+    TensorAdd<Self, Output = Self>
+    + TensorSub<Self, Output = Self>
+    + TensorMul<Self, Output = Self>
+    + TensorDiv<Self, Output = Self>
+    + TensorElemInv<Output = Self>
+    + TensorNeg<Output = Self>
+    + Exp<Output = Self>
+    + Container<Elem = Scalar>
+    + MaskCmp<Mask = Self>
+    + Shape
+    + FromShapedData<Error = HError>
+    + TryInto<CommonRepr, Error = HError>
 where
     Self: Sized,
     <Self as Container>::Elem: PartialOrd,
-{}
+{
+}
 
-pub trait Dot<Rhs> : Shape
+pub trait Dot<Rhs>: Shape
 where
-    Rhs: Shape
+    Rhs: Shape,
 {
     type Output;
 
-    fn dot(&self, rhs: &Rhs) -> TensorOpResult<Self::Output>;
+    fn dot(&self, rhs: &Rhs) -> HResult<Self::Output>;
 }
 
 pub trait Exp {
@@ -103,35 +104,35 @@ pub trait Container {
 
 pub trait Broadcast<To>
 where
-    Self: Sized
+    Self: Sized,
 {
-    fn broadcast(&self, to: &To) -> TensorOpResult<To>;
+    fn broadcast(&self, to: &To) -> HResult<To>;
 }
 
 pub trait Reshape
 where
-    Self: Sized
+    Self: Sized,
 {
     type Output;
 
-    fn reshape(&self, new_shape: ShapeVec) -> TensorOpResult<Self::Output>;
+    fn reshape(&self, new_shape: ShapeVec) -> HResult<Self::Output>;
 }
 
 pub trait ReduceSum {
     type Output;
 
-    fn reduce_sum(&self, axis: usize) -> TensorOpResult<Self::Output>;
+    fn reduce_sum(&self, axis: usize) -> HResult<Self::Output>;
 }
 
 pub trait ReduceMean {
     type Output;
 
-    fn reduce_mean(&self, axis: usize) -> TensorOpResult<Self::Output>;
+    fn reduce_mean(&self, axis: usize) -> HResult<Self::Output>;
 }
 
 pub trait FromShapedData
 where
-    Self: Sized
+    Self: Sized,
 {
     type Error;
 
@@ -141,36 +142,32 @@ where
 pub trait Transpose {
     type Output;
 
-    fn transpose(&self) -> TensorOpResult<Self::Output>;
+    fn transpose(&self) -> HResult<Self::Output>;
 }
 
 pub trait Backend
 where
     Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
-    Self::CommonRepr:
-        TryInto<Self::Tensor1D, Error = String> +
-        TryInto<Self::Tensor2D, Error = String> +
-        TryInto<Self::TensorXD, Error = String> +
-        FromShapedData<Error = String>,
-    Self::Tensor1D:
-        Tensor<Self::Scalar, Self::CommonRepr> +
-        Broadcast<Self::Tensor2D> +
-        Reshape<Output = Self::TensorXD>,
-    Self::Tensor2D:
-        Tensor<Self::Scalar, Self::CommonRepr> +
-        Dot<Self::Tensor2D, Output = Self::Tensor2D> +
-        Reshape<Output = Self::TensorXD> +
-        ReduceSum<Output = Self::Tensor1D> +
-        ReduceMean<Output = Self::Tensor1D> +
-        Transpose<Output = Self::Tensor2D>,
-    Self::TensorXD:
-        Tensor<Self::Scalar, Self::CommonRepr> +
-        Broadcast<Self::TensorXD> +
-        Reshape<Output = Self::TensorXD> +
-        ReduceSum<Output = Self::TensorXD> +
-        ReduceMean<Output = Self::TensorXD> +
-        Display +
-        Debug,
+    Self::CommonRepr: TryInto<Self::Tensor1D, Error = HError>
+        + TryInto<Self::Tensor2D, Error = HError>
+        + TryInto<Self::TensorXD, Error = HError>
+        + FromShapedData<Error = HError>,
+    Self::Tensor1D: Tensor<Self::Scalar, Self::CommonRepr>
+        + Broadcast<Self::Tensor2D>
+        + Reshape<Output = Self::TensorXD>,
+    Self::Tensor2D: Tensor<Self::Scalar, Self::CommonRepr>
+        + Dot<Self::Tensor2D, Output = Self::Tensor2D>
+        + Reshape<Output = Self::TensorXD>
+        + ReduceSum<Output = Self::Tensor1D>
+        + ReduceMean<Output = Self::Tensor1D>
+        + Transpose<Output = Self::Tensor2D>,
+    Self::TensorXD: Tensor<Self::Scalar, Self::CommonRepr>
+        + Broadcast<Self::TensorXD>
+        + Reshape<Output = Self::TensorXD>
+        + ReduceSum<Output = Self::TensorXD>
+        + ReduceMean<Output = Self::TensorXD>
+        + Display
+        + Debug,
 {
     type Scalar;
     type CommonRepr;
