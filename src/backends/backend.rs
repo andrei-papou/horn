@@ -145,6 +145,14 @@ pub trait Transpose {
     fn transpose(&self) -> HResult<Self::Output>;
 }
 
+pub mod conv {
+    #[derive(Clone, Copy)]
+    pub enum Padding {
+        Valid,
+        Same,
+    }
+}
+
 pub trait Backend
 where
     Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
