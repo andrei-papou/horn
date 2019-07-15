@@ -145,12 +145,22 @@ pub trait Transpose {
     fn transpose(&self) -> HResult<Self::Output>;
 }
 
-pub mod conv {
-    #[derive(Clone, Copy)]
-    pub enum Padding {
-        Valid,
-        Same,
-    }
+#[derive(Clone, Copy)]
+pub enum Padding {
+    Valid,
+    Same,
+}
+
+pub trait Conv2D<K, B> {
+    type Output;
+
+    fn conv_2d(
+        &self,
+        kernels: &K,
+        biases: &Option<B>,
+        strides: (usize, usize),
+        padding: Padding,
+    ) -> HResult<Self::Output>;
 }
 
 pub trait Backend
@@ -158,6 +168,8 @@ where
     Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
     Self::CommonRepr: TryInto<Self::Tensor1D, Error = HError>
         + TryInto<Self::Tensor2D, Error = HError>
+        + TryInto<Self::Tensor3D, Error = HError>
+        + TryInto<Self::Tensor4D, Error = HError>
         + TryInto<Self::TensorXD, Error = HError>
         + FromShapedData<Error = HError>,
     Self::Tensor1D: Tensor<Self::Scalar, Self::CommonRepr>
@@ -169,6 +181,9 @@ where
         + ReduceSum<Output = Self::Tensor1D>
         + ReduceMean<Output = Self::Tensor1D>
         + Transpose<Output = Self::Tensor2D>,
+    Self::Tensor3D: Tensor<Self::Scalar, Self::CommonRepr>,
+    Self::Tensor4D: Tensor<Self::Scalar, Self::CommonRepr>
+        + Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>,
     Self::TensorXD: Tensor<Self::Scalar, Self::CommonRepr>
         + Broadcast<Self::TensorXD>
         + Reshape<Output = Self::TensorXD>
@@ -182,5 +197,7 @@ where
 
     type Tensor1D;
     type Tensor2D;
+    type Tensor3D;
+    type Tensor4D;
     type TensorXD;
 }

@@ -1,4 +1,5 @@
 mod activation;
+mod conv;
 mod dense;
 mod traits;
 

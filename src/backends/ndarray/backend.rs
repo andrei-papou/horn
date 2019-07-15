@@ -1,18 +1,22 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
-use std::ops::{Add, Div, Neg};
+use std::ops::{Add, Div, Mul, Neg};
 
-use ndarray::{Array, Array1, Array2, ArrayD, Axis, Dimension, LinalgScalar, RemoveAxis};
+use ndarray::{
+    Array, Array1, Array2, Array3, Array4, ArrayD, Axis, Dimension, LinalgScalar, RemoveAxis,
+};
 use num_traits::identities::{One, Zero};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean, ReduceSum,
-    Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul, TensorNeg,
-    TensorSub, Transpose,
+    Backend, Broadcast, Container, Conv2D, Dot, Exp, FromShapedData, MaskCmp, Padding, ReduceMean,
+    ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul,
+    TensorNeg, TensorSub, Transpose,
 };
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
+
+use super::conv::convolve_2d;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -55,6 +59,8 @@ where
 
     type Tensor1D = Array1<A>;
     type Tensor2D = Array2<A>;
+    type Tensor3D = Array3<A>;
+    type Tensor4D = Array4<A>;
     type TensorXD = ArrayD<A>;
 }
 
@@ -319,6 +325,23 @@ where
         Array::<A, _>::from_shape_vec(shape, vec)?
             .into_dimensionality::<D>()
             .map_err(|err| err.into())
+    }
+}
+
+impl<A> Conv2D<Array4<A>, Array1<A>> for Array4<A>
+where
+    A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero,
+{
+    type Output = Array4<A>;
+
+    fn conv_2d(
+        &self,
+        kernels: &Array4<A>,
+        biases: &Option<Array1<A>>,
+        strides: (usize, usize),
+        padding: Padding,
+    ) -> HResult<Array4<A>> {
+        Ok(convolve_2d(self, kernels, biases, strides, padding)?)
     }
 }
 
