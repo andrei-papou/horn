@@ -9,14 +9,15 @@ use ndarray::{
 use num_traits::identities::{One, Zero};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Conv2D, Dot, Exp, FromShapedData, MaskCmp, Padding, ReduceMean,
+    Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean,
     ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul,
     TensorNeg, TensorSub, Transpose,
 };
+use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
 
-use super::conv::convolve_2d;
+use super::conv::convolve2d;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -328,20 +329,21 @@ where
     }
 }
 
-impl<A> Conv2D<Array4<A>, Array1<A>> for Array4<A>
+impl<A> convnets::Conv2D<Array4<A>, Array1<A>> for Array4<A>
 where
     A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero,
 {
     type Output = Array4<A>;
 
-    fn conv_2d(
+    fn conv2d(
         &self,
         kernels: &Array4<A>,
         biases: &Option<Array1<A>>,
         strides: (usize, usize),
-        padding: Padding,
+        padding: convnets::Padding,
+        data_format: convnets::DataFormat,
     ) -> HResult<Array4<A>> {
-        Ok(convolve_2d(self, kernels, biases, strides, padding)?)
+        Ok(convolve2d(self, kernels, biases, strides, padding, data_format)?)
     }
 }
 

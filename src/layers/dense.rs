@@ -8,6 +8,7 @@ use super::traits::{Apply, FromJson};
 use crate::backends::backend::{Backend, Broadcast, Dot, FromShapedData, TensorAdd};
 use crate::common::types::{HError, HResult};
 use crate::common::Name;
+use crate::model::binary_format::WeightsMap;
 
 pub struct DenseLayer<B: Backend> {
     name: String,
@@ -60,31 +61,10 @@ impl<B: Backend> FromJson for DenseLayer<B> {
     const TYPE: &'static str = "Dense";
     type Error = HError;
 
-    fn from_json(json: &Value, weights: &mut HashMap<u16, Vec<f64>>) -> HResult<DenseLayer<B>> {
+    fn from_json(json: &Value, weights: &mut WeightsMap) -> HResult<DenseLayer<B>> {
         let spec: DenseLayerSpec = from_value(json.clone())?;
-        let w_shape: Vec<usize> = spec.w_shape.into_iter().map(|x| x as usize).collect();
-        let w_id = spec.w_id as u16;
-        let b_shape: Option<Vec<usize>> = spec
-            .b_shape
-            .map(|v| v.into_iter().map(|x| x as usize).collect());
-        let b_id = spec.b_id.map(|x| x as u16);
-
-        let w_data = match weights.remove(&w_id) {
-            Some(v) => v,
-            None => return Err(format_err!("Missing weights for wid \"{}\".", w_id)),
-        };
-        let w = B::Tensor2D::from_shaped_data(w_data, w_shape)?;
-
-        let mut b: Option<B::Tensor1D> = None;
-        if b_id.is_some() {
-            let b_id = b_id.unwrap();
-            let b_data = match weights.remove(&b_id) {
-                Some(v) => v,
-                None => return Err(format_err!("Missing weights for wid \"{}\".", b_id)),
-            };
-            b = Some(B::Tensor1D::from_shaped_data(b_data, b_shape.unwrap())?);
-        }
-
+        let w = weights.try_build_weight::<B::Tensor2D>(spec.w_id, spec.w_shape)?;
+        let b = weights.try_build_weight_optional::<B::Tensor1D>(spec.b_id, spec.b_shape)?;
         Ok(DenseLayer::new(spec.name, w, b))
     }
 }

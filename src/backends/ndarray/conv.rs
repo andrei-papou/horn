@@ -7,7 +7,7 @@ use ndarray::{
 };
 use num_traits::Zero;
 
-use crate::backends::backend::Padding;
+use crate::backends::convnets::{DataFormat, Padding};
 
 fn pad_array<A, S, D>(arr: &ArrayBase<S, D>, pads: &[usize]) -> Result<Array<A, D>, ShapeError>
 where
@@ -72,65 +72,84 @@ fn get_conv2d_result_axis_len(n: usize, k: usize, s: usize, p: usize) -> usize {
     (n + 2 * p - k) / s + 1
 }
 
-pub(crate) fn convolve_2d<A>(
+pub(crate) fn convolve2d<A>(
     input_batch: &Array4<A>,
     kernels: &Array4<A>,
     bias: &Option<Array1<A>>,
     strides: (usize, usize),
     padding: Padding,
+    data_format: DataFormat,
 ) -> Result<Array4<A>, ShapeError>
 where
     A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero,
 {
+    let (h_axis, w_axis): (usize, usize) = match &data_format {
+        DataFormat::ChannelsFirst => (1, 2),
+        DataFormat::ChannelsLast => (0, 1),
+    };
+
     let batch_results: Vec<Result<Array4<A>, ShapeError>> = input_batch
         .axis_iter(Axis(0))
         .map(|input: ArrayView3<A>| {
             let i_shape = input.shape();
+            let h_dim_input = i_shape[h_axis];
+            let w_dim_input = i_shape[w_axis];
             let (num_kernels, k_shape) = kernels.shape().split_at(1);
-            let num_kernels = num_kernels[0];
+            let res_k = num_kernels[0];
+            let h_dim_kernel = k_shape[h_axis];
+            let w_dim_kernel = k_shape[w_axis];
 
-            let (xp, yp) = match &padding {
+            let (hp, wp) = match &padding {
                 Padding::Valid => (0, 0),
                 Padding::Same => (
-                    get_axis_padding(i_shape[0], k_shape[0], strides.0),
-                    get_axis_padding(i_shape[1], k_shape[1], strides.1),
+                    get_axis_padding(h_dim_input, h_dim_kernel, strides.0),
+                    get_axis_padding(w_dim_input, w_dim_kernel, strides.1),
                 ),
             };
-            let res_x = get_conv2d_result_axis_len(i_shape[0], k_shape[0], strides.0, xp);
-            let res_y = get_conv2d_result_axis_len(i_shape[1], k_shape[1], strides.1, yp);
+            let res_h = get_conv2d_result_axis_len(h_dim_input, h_dim_kernel, strides.0, hp);
+            let res_w = get_conv2d_result_axis_len(w_dim_input, w_dim_kernel, strides.1, wp);
 
-            let mut kernels_output = Vec::<A>::with_capacity(res_x * res_y * num_kernels);
+            let mut kernels_output = vec![A::zero(); res_h * res_w * res_k];
 
             let input: Array3<A> = match &padding {
                 Padding::Valid => input.into_owned(),
-                Padding::Same => pad_array3(&input, &(xp, yp, 0)),
+                Padding::Same => pad_array3(&input, &(hp, wp, 0)),
             };
             let i_shape = input.shape();
 
-            for xr in (0..(i_shape[0] - k_shape[0] + 1)).step_by(strides.0) {
-                for yr in (0..(i_shape[1] - k_shape[1] + 1)).step_by(strides.1) {
+            let get_idx = |ki:usize, hi: usize, wi: usize| -> usize {
+                match &data_format {
+                    DataFormat::ChannelsFirst => ki * res_h * res_w + hi * res_w + wi,
+                    DataFormat::ChannelsLast => hi * res_w * res_k + wi * res_k + ki,
+                }
+            };
+
+            for (hi, hr) in (0..(h_dim_input - h_dim_kernel + 1)).step_by(strides.0).enumerate() {
+                for (wi, wr) in (0..(w_dim_input - w_dim_kernel + 1)).step_by(strides.1).enumerate() {
                     let window = input
                         .slice_axis(
-                            Axis(0),
-                            Slice::new(xr as isize, Some((xr + k_shape[0]) as isize), 1),
+                            Axis(h_axis),
+                            Slice::new(hr as isize, Some((hr + h_dim_kernel) as isize), 1),
                         )
                         .slice_axis(
-                            Axis(1),
-                            Slice::new(yr as isize, Some((yr + k_shape[1]) as isize), 1),
+                            Axis(w_axis),
+                            Slice::new(wr as isize, Some((wr + w_dim_kernel) as isize), 1),
                         )
                         .into_owned();
                     kernels.axis_iter(Axis(0)).enumerate().for_each(
                         |(ki, kernel): (usize, ArrayView3<A>)| {
-                            kernels_output.push(
-                                (&window * &kernel).sum()
-                                    + bias.as_ref().map(|b| b[ki]).unwrap_or(A::zero()),
-                            );
+                            let b = bias.as_ref().map(|b| b[ki]).unwrap_or(A::zero());
+                            kernels_output[get_idx(ki, hi, wi)] = (&window * &kernel).sum() + b;
                         },
                     );
                 }
             }
 
-            Array4::<A>::from_shape_vec((1usize, res_x, res_y, num_kernels), kernels_output)
+            let kernels_output_shape: (usize, usize, usize, usize) = match &data_format {
+                DataFormat::ChannelsFirst => (1usize, res_k, res_h, res_w),
+                DataFormat::ChannelsLast => (1usize, res_h, res_w, res_k),
+            };
+            Array4::<A>::from_shape_vec(kernels_output_shape, kernels_output)
         })
         .collect();
     let batch_results = batch_results
@@ -228,13 +247,27 @@ mod tests {
             [[32.0, 19.0], [36.0, 28.0], [21.0, 19.0]],
         ];
 
-        let output = convolve_2d(&input, &kernels, &bias, (1, 1), Padding::Valid).unwrap();
+        let output = convolve2d(
+            &input,
+            &kernels,
+            &bias,
+            (1, 1),
+            Padding::Valid,
+            DataFormat::ChannelsLast
+        ).unwrap();
         assert_eq!(output.shape(), &[2, 3, 3, 2]);
         let act_o1 = output.index_axis(Axis(0), 0);
         assert_eq!(exp_o1, act_o1);
 
         // (2, 2) strides (symmetric)
-        let output = convolve_2d(&input, &kernels, &bias, (2, 2), Padding::Valid).unwrap();
+        let output = convolve2d(
+            &input,
+            &kernels,
+            &bias,
+            (2, 2),
+            Padding::Valid,
+            DataFormat::ChannelsLast,
+        ).unwrap();
         assert_eq!(output.shape(), &[2, 2, 2, 2]);
         let exp_o1 = array![
             [[20.0, 20.0], [26.0, 25.0]],
@@ -244,7 +277,14 @@ mod tests {
         assert_eq!(exp_o1, act_o1);
 
         // (2, 1) strides (non-symmetric)
-        let output = convolve_2d(&input, &kernels, &bias, (2, 1), Padding::Valid).unwrap();
+        let output = convolve2d(
+            &input,
+            &kernels,
+            &bias,
+            (2, 1),
+            Padding::Valid,
+            DataFormat::ChannelsLast,
+        ).unwrap();
         assert_eq!(output.shape(), &[2, 2, 3, 2]);
         let exp_o1 = array![
             [[20.0, 20.0], [31.0, 24.0], [26.0, 25.0]],
@@ -254,7 +294,14 @@ mod tests {
         assert_eq!(exp_o1, act_o1);
 
         // Same padding
-        let output = convolve_2d(&input, &kernels, &bias, (1, 1), Padding::Same).unwrap();
+        let output = convolve2d(
+            &input,
+            &kernels,
+            &bias,
+            (1, 1),
+            Padding::Same,
+            DataFormat::ChannelsLast,
+        ).unwrap();
         assert_eq!(output.shape(), &[2, 5, 5, 2]);
     }
 }

@@ -6,6 +6,8 @@ use num_traits::{One, Zero};
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
 
+use super::convnets;
+
 pub type ShapeVec = Vec<usize>;
 
 pub trait Shape {
@@ -145,24 +147,6 @@ pub trait Transpose {
     fn transpose(&self) -> HResult<Self::Output>;
 }
 
-#[derive(Clone, Copy)]
-pub enum Padding {
-    Valid,
-    Same,
-}
-
-pub trait Conv2D<K, B> {
-    type Output;
-
-    fn conv_2d(
-        &self,
-        kernels: &K,
-        biases: &Option<B>,
-        strides: (usize, usize),
-        padding: Padding,
-    ) -> HResult<Self::Output>;
-}
-
 pub trait Backend
 where
     Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
@@ -183,7 +167,7 @@ where
         + Transpose<Output = Self::Tensor2D>,
     Self::Tensor3D: Tensor<Self::Scalar, Self::CommonRepr>,
     Self::Tensor4D: Tensor<Self::Scalar, Self::CommonRepr>
-        + Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>,
+        + convnets::Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>,
     Self::TensorXD: Tensor<Self::Scalar, Self::CommonRepr>
         + Broadcast<Self::TensorXD>
         + Reshape<Output = Self::TensorXD>

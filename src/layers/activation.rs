@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
@@ -13,6 +12,7 @@ use crate::backends::backend::{
 use crate::common::types::{HError, HResult};
 use crate::common::Name;
 use crate::layers::traits::{Apply, FromJson};
+use crate::model::binary_format::WeightsMap;
 
 #[derive(Serialize, Deserialize)]
 struct GenericActivationSpec {
@@ -47,7 +47,7 @@ impl<B: Backend> FromJson for Sigmoid<B> {
 
     type Error = HError;
 
-    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> HResult<Self> {
+    fn from_json(json: &Value, _weights: &mut WeightsMap) -> HResult<Self> {
         let spec: GenericActivationSpec = from_value(json.clone())?;
         Ok(Sigmoid::new(spec.name))
     }
@@ -83,7 +83,7 @@ impl<B: Backend> FromJson for Tanh<B> {
 
     type Error = HError;
 
-    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> HResult<Self> {
+    fn from_json(json: &Value, _weights: &mut WeightsMap) -> HResult<Self> {
         let spec: GenericActivationSpec = from_value(json.clone())?;
         Ok(Tanh::new(spec.name))
     }
@@ -116,7 +116,7 @@ impl<B: Backend> FromJson for Relu<B> {
 
     type Error = HError;
 
-    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> HResult<Self> {
+    fn from_json(json: &Value, _weights: &mut WeightsMap) -> HResult<Self> {
         let spec: GenericActivationSpec = from_value(json.clone())?;
         Ok(Relu::new(spec.name))
     }
@@ -167,7 +167,7 @@ impl<B: Backend> FromJson for Softmax<B> {
 
     type Error = HError;
 
-    fn from_json(json: &Value, _weights: &mut HashMap<u16, Vec<f64>>) -> HResult<Self> {
+    fn from_json(json: &Value, _weights: &mut WeightsMap) -> HResult<Self> {
         let spec: SoftmaxSpec = from_value(json.clone())?;
         Ok(Softmax::new(spec.name, spec.axis.map(|x| x as usize)))
     }

@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-
 use crate::serde_json::Value;
 
 use crate::backends::backend::Backend;
 use crate::common::types::HResult;
+use crate::model::binary_format::WeightsMap;
 
-pub trait Apply<B: Backend> {
+pub(crate) trait Apply<B: Backend> {
     fn apply(&self, input: B::CommonRepr) -> HResult<B::CommonRepr>;
 }
 
-pub trait FromJson
+pub(crate) trait FromJson
 where
     Self: Sized,
 {
@@ -17,5 +16,5 @@ where
 
     type Error;
 
-    fn from_json(json: &Value, weights: &mut HashMap<u16, Vec<f64>>) -> Result<Self, Self::Error>;
+    fn from_json(json: &Value, weights: &mut WeightsMap) -> Result<Self, Self::Error>;
 }
