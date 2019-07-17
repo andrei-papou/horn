@@ -1,10 +1,10 @@
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
 
-use crate::backends::{Backend, FromShapedData};
-use crate::backends::convnets::{Conv2D, Padding, DataFormat};
+use crate::backends::convnets::{Conv2D, DataFormat, Padding};
+use crate::backends::Backend;
 use crate::common::traits::Name;
 use crate::common::types::{HError, HResult};
 use crate::layers::traits::{Apply, FromJson};
@@ -84,6 +84,13 @@ impl<B: Backend> FromJson for Conv2DLayer<B> {
         let padding = Padding::try_from(spec.padding.as_str())?;
         let data_format = DataFormat::try_from(spec.data_format.as_str())?;
 
-        Ok(Conv2DLayer::new(spec.name, f, b, spec.strides, padding, data_format))
+        Ok(Conv2DLayer::new(
+            spec.name,
+            f,
+            b,
+            spec.strides,
+            padding,
+            data_format,
+        ))
     }
 }

@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use std::convert::TryInto;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
 
 use super::traits::{Apply, FromJson};
-use crate::backends::backend::{Backend, Broadcast, Dot, FromShapedData, TensorAdd};
+use crate::backends::backend::{Backend, Broadcast, Dot, TensorAdd};
 use crate::common::types::{HError, HResult};
 use crate::common::Name;
 use crate::model::binary_format::WeightsMap;

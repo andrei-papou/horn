@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Error as IOError, Read};
-use std::ops::Try;
 
 use byteorder::{NativeEndian, ReadBytesExt};
 
 use crate::backends::FromShapedData;
-use crate::common::types::{HResult, HError};
+use crate::common::types::{HError, HResult};
 
 const BYTES_PER_ENTRY_SIZE: usize = 4;
 const BYTES_PER_WEIGHT_ID: usize = 2;
@@ -17,7 +16,7 @@ pub(crate) struct WeightsMap(HashMap<u16, Vec<f64>>);
 impl WeightsMap {
     pub(crate) fn try_build_weight<W>(&mut self, id: u64, shape: Vec<u64>) -> HResult<W>
     where
-        W: FromShapedData<Error = HError>
+        W: FromShapedData<Error = HError>,
     {
         let shape = shape.into_iter().map(|x| x as usize).collect();
         let id = id as u16;
@@ -31,16 +30,18 @@ impl WeightsMap {
     pub(crate) fn try_build_weight_optional<W>(
         &mut self,
         id: Option<u64>,
-        shape: Option<Vec<u64>>
+        shape: Option<Vec<u64>>,
     ) -> HResult<Option<W>>
     where
-        W: FromShapedData<Error = HError>
+        W: FromShapedData<Error = HError>,
     {
-        Ok(if let Some((id, sh)) = shape.and_then(|shape| id.map(|id| (id, shape))) {
-            Some(self.try_build_weight::<W>(id, sh)?)
-        } else {
-            None
-        })
+        Ok(
+            if let Some((id, sh)) = shape.and_then(|shape| id.map(|id| (id, shape))) {
+                Some(self.try_build_weight::<W>(id, sh)?)
+            } else {
+                None
+            },
+        )
     }
 }
 

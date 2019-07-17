@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use crate::common::types::{HResult, HError};
+use crate::common::types::{HError, HResult};
 
 #[derive(Clone, Copy)]
 pub enum Padding {

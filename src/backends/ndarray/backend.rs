@@ -9,9 +9,9 @@ use ndarray::{
 use num_traits::identities::{One, Zero};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean,
-    ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul,
-    TensorNeg, TensorSub, Transpose,
+    Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean, ReduceSum,
+    Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul, TensorNeg,
+    TensorSub, Transpose,
 };
 use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
@@ -343,7 +343,14 @@ where
         padding: convnets::Padding,
         data_format: convnets::DataFormat,
     ) -> HResult<Array4<A>> {
-        Ok(convolve2d(self, kernels, biases, strides, padding, data_format)?)
+        Ok(convolve2d(
+            self,
+            kernels,
+            biases,
+            strides,
+            padding,
+            data_format,
+        )?)
     }
 }
 

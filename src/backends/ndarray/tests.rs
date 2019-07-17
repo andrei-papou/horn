@@ -1,15 +1,12 @@
-use std::convert::TryInto;
-
-use ndarray::{array, Array1, Array2};
-
-use super::backend::NdArrayBackend;
-use crate::common::traits::Name;
-use crate::layers::Apply;
-
 #[cfg(test)]
 mod dense_layer {
-    use super::*;
-    use crate::layers::DenseLayer;
+    use std::convert::TryInto;
+
+    use ndarray::{array, Array1, Array2};
+
+    use crate::backends::NdArrayBackend;
+    use crate::common::traits::Name;
+    use crate::layers::{Apply, DenseLayer};
 
     #[test]
     fn test_name() {
@@ -66,8 +63,12 @@ mod dense_layer {
 
 #[cfg(test)]
 mod activations {
-    use super::*;
-    use crate::layers::{Relu, Sigmoid, Softmax, Tanh};
+    use std::convert::TryInto;
+
+    use ndarray::{array, Array2};
+
+    use crate::backends::NdArrayBackend;
+    use crate::layers::{Apply, Relu, Sigmoid, Softmax, Tanh};
 
     #[test]
     fn test_sigmoid() {

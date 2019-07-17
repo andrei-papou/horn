@@ -10,8 +10,7 @@ use crate::common::traits::Name;
 use crate::common::types::HResult;
 use crate::layers::{Apply, Conv2DLayer, DenseLayer, FromJson, Relu, Sigmoid, Softmax, Tanh};
 
-use binary_format::{decode_from_file, ModelData};
-
+use binary_format::decode_from_file;
 
 pub struct Model<'a, B: Backend + 'a> {
     name: String,
@@ -32,7 +31,7 @@ struct ModelSpec {
 
 impl<'a, B: Backend + 'a> Model<'a, B> {
     pub fn from_file(file_path: &str) -> HResult<Model<B>> {
-        let mut model_data = decode_from_file(file_path)?;
+        let model_data = decode_from_file(file_path)?;
         let (spec, mut weights_map) = model_data.unwrap();
         let spec: ModelSpec = json_from_str(&spec)?;
 
@@ -47,16 +46,12 @@ impl<'a, B: Backend + 'a> Model<'a, B> {
             layers.push(match layer_type.as_ref() {
                 Conv2DLayer::<B>::TYPE => {
                     Box::new(DenseLayer::<B>::from_json(&lo, &mut weights_map)?)
-                },
+                }
                 DenseLayer::<B>::TYPE => {
                     Box::new(DenseLayer::<B>::from_json(&lo, &mut weights_map)?)
                 }
-                Sigmoid::<B>::TYPE => {
-                    Box::new(Sigmoid::<B>::from_json(&lo, &mut weights_map)?)
-                }
-                Softmax::<B>::TYPE => {
-                    Box::new(Softmax::<B>::from_json(&lo, &mut weights_map)?)
-                }
+                Sigmoid::<B>::TYPE => Box::new(Sigmoid::<B>::from_json(&lo, &mut weights_map)?),
+                Softmax::<B>::TYPE => Box::new(Softmax::<B>::from_json(&lo, &mut weights_map)?),
                 Tanh::<B>::TYPE => Box::new(Tanh::<B>::from_json(&lo, &mut weights_map)?),
                 Relu::<B>::TYPE => Box::new(Relu::<B>::from_json(&lo, &mut weights_map)?),
                 _ => return Err(format_err!("Unknown layer type: {}", layer_type)),
