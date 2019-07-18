@@ -1,32 +1,11 @@
 use std::fmt::Debug;
 use std::ops::{Add, Mul};
 
-use ndarray::{
-    stack, Array, Array1, Array3, Array4, ArrayBase, ArrayView3, ArrayView4, Axis, Data, Ix3,
-    ShapeError, Slice,
-};
+use ndarray::{stack, Array1, Array3, Array4, ArrayView3, ArrayView4, Axis, ShapeError, Slice};
 use num_traits::Zero;
 
+use super::common::pad_array3;
 use crate::backends::convnets::{DataFormat, Padding};
-
-fn pad_array3<A, S>(arr: &ArrayBase<S, Ix3>, pads: &(usize, usize, usize)) -> Array<A, Ix3>
-where
-    A: Zero + Clone,
-    S: Data<Elem = A>,
-{
-    let shape = arr.shape();
-    let new_shape = (
-        shape[0] + pads.0 * 2,
-        shape[1] + pads.1 * 2,
-        shape[2] + pads.2 * 2,
-    );
-    let mut new_arr = Array3::<A>::from_elem(new_shape, A::zero());
-    arr.view().indexed_iter().for_each(|(idx, el)| {
-        let idx = (idx.0 + pads.0, idx.1 + pads.1, idx.2 + pads.2);
-        new_arr[idx] = el.clone();
-    });
-    new_arr
-}
 
 fn get_axis_padding(axis_len: usize, kernel_size: usize, stride: usize) -> usize {
     (kernel_size + stride * (axis_len - 1) - axis_len) / 2
@@ -36,7 +15,7 @@ fn get_conv2d_result_axis_len(n: usize, k: usize, s: usize, p: usize) -> usize {
     (n + 2 * p - k) / s + 1
 }
 
-pub(crate) fn convolve2d<A>(
+pub(crate) fn conv2d<A>(
     input_batch: &Array4<A>,
     kernels: &Array4<A>,
     bias: &Option<Array1<A>>,
@@ -262,7 +241,7 @@ mod tests {
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     #[test]
-    fn test_convolve_2d() {
+    fn test_conv2d() {
         let (input, kernels, bias) = get_channels_last_data();
 
         let exp_o1 = array![
@@ -270,7 +249,7 @@ mod tests {
             [[29.0, 28.0], [33.0, 28.0], [33.0, 23.0]],
             [[32.0, 19.0], [36.0, 28.0], [21.0, 19.0]],
         ];
-        let output = convolve2d(
+        let output = conv2d(
             &input,
             &kernels,
             &bias,
@@ -283,7 +262,7 @@ mod tests {
         assert_eq!(exp_o1, act_o1);
 
         // (2, 2) strides (symmetric)
-        let output = convolve2d(
+        let output = conv2d(
             &input,
             &kernels,
             &bias,
@@ -300,7 +279,7 @@ mod tests {
         assert_eq!(exp_o1, act_o1);
 
         // (2, 1) strides (non-symmetric)
-        let output = convolve2d(
+        let output = conv2d(
             &input,
             &kernels,
             &bias,
@@ -317,7 +296,7 @@ mod tests {
         assert_eq!(exp_o1, act_o1);
 
         // Same padding
-        let output = convolve2d(
+        let output = conv2d(
             &input,
             &kernels,
             &bias,
@@ -336,7 +315,7 @@ mod tests {
              [28.0, 28.0, 23.0],
              [19.0, 28.0, 19.0]]
         ];
-        let output = convolve2d(
+        let output = conv2d(
             &input,
             &kernels,
             &bias,

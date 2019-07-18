@@ -17,7 +17,7 @@ use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
 
-use super::conv::convolve2d;
+use super::convnets::conv2d;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -343,7 +343,7 @@ where
         padding: convnets::Padding,
         data_format: convnets::DataFormat,
     ) -> HResult<Array4<A>> {
-        Ok(convolve2d(
+        Ok(conv2d(
             self,
             kernels,
             biases,
