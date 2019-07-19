@@ -1,7 +1,5 @@
 pub(crate) mod binary_format;
 
-use std::ops::Try;
-
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str as json_from_str, Value};
 
@@ -38,14 +36,14 @@ impl<'a, B: Backend + 'a> Model<'a, B> {
         let mut layers: Vec<Box<dyn Apply<B>>> = Vec::with_capacity(spec.layers.len());
 
         for lo in spec.layers {
-            let layer_type = lo["type"]
-                .as_str()
-                .into_result()
-                .map_err(|_e| format_err!("Layer object does not contain valid type"))?;
+            let layer_type = match lo["type"].as_str() {
+                Some(lt) => lt,
+                None => return Err(format_err!("Layer object does not contain valid type")),
+            };
 
             layers.push(match layer_type.as_ref() {
                 Conv2DLayer::<B>::TYPE => {
-                    Box::new(DenseLayer::<B>::from_json(&lo, &mut weights_map)?)
+                    Box::new(Conv2DLayer::<B>::from_json(&lo, &mut weights_map)?)
                 }
                 DenseLayer::<B>::TYPE => {
                     Box::new(DenseLayer::<B>::from_json(&lo, &mut weights_map)?)

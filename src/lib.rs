@@ -1,5 +1,3 @@
-#![feature(try_trait)]
-
 extern crate byteorder;
 #[macro_use]
 extern crate failure;
