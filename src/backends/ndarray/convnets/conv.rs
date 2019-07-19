@@ -5,21 +5,13 @@ use ndarray::{stack, Array1, Array3, Array4, ArrayView3, ArrayView4, Axis, Shape
 use num_traits::Zero;
 
 use super::common::pad_array3;
-use crate::backends::convnets::{DataFormat, Padding};
-
-fn get_axis_padding(axis_len: usize, kernel_size: usize, stride: usize) -> usize {
-    (kernel_size + stride * (axis_len - 1) - axis_len) / 2
-}
-
-fn get_conv2d_result_axis_len(n: usize, k: usize, s: usize, p: usize) -> usize {
-    (n + 2 * p - k) / s + 1
-}
+use crate::backends::convnets::{DataFormat, Padding, Stride2, get_axis_padding, get_conv2d_result_axis_len};
 
 pub(crate) fn conv2d<A>(
     input_batch: &Array4<A>,
     kernels: &Array4<A>,
     bias: &Option<Array1<A>>,
-    strides: (usize, usize),
+    strides: Stride2,
     padding: Padding,
     data_format: DataFormat,
 ) -> Result<Array4<A>, ShapeError>

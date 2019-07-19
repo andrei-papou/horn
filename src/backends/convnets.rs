@@ -2,6 +2,16 @@ use std::convert::TryFrom;
 
 use crate::common::types::{HError, HResult};
 
+pub(crate) type Stride2 = (usize, usize);
+
+pub(super) fn get_axis_padding(axis_len: usize, kernel_size: usize, stride: usize) -> usize {
+    (kernel_size + stride * (axis_len - 1) - axis_len) / 2
+}
+
+pub(super) fn get_conv2d_result_axis_len(n: usize, k: usize, s: usize, p: usize) -> usize {
+    (n + 2 * p - k) / s + 1
+}
+
 #[derive(Clone, Copy)]
 pub enum Padding {
     Valid,
@@ -55,7 +65,7 @@ pub trait Conv2D<K, B> {
         &self,
         kernels: &K,
         biases: &Option<B>,
-        strides: (usize, usize),
+        strides: Stride2,
         padding: Padding,
         data_format: DataFormat,
     ) -> HResult<Self::Output>;
