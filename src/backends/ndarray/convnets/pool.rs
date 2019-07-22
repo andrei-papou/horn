@@ -1,16 +1,17 @@
 use std::convert::TryInto;
+use std::iter::Sum;
 use std::fmt::Debug;
-use std::ops::{Add, Mul, Div};
+use std::ops::{Add, Mul, Div, Neg};
 
 use ndarray::{Array2, Array3, Array4, ArrayView2, ArrayView3, ArrayView4, Axis, ShapeError, Slice, stack, ErrorKind};
-use num_traits::{One, Zero};
+use num_traits::{One, Zero, real::Real};
 
 use crate::backends::convnets::{DataFormat, Padding, Stride2, get_axis_padding, get_conv2d_result_axis_len};
 use super::common::pad_array3;
 
 type Pool2 = (usize, usize);
 
-pub(crate) fn pool2d<A, F>(
+fn pool2d<A, F>(
     input_batch: &Array4<A>,
     pool_window: Pool2,
     strides: Stride2,
@@ -49,8 +50,14 @@ where
 
             let input: Array3<A> = match &padding {
                 Padding::Valid => input.into_owned(),
-                Padding::Same => pad_array3(&input, &(hp, wp, 0)),
+                Padding::Same => pad_array3(&input, &(match &data_format {
+                    DataFormat::ChannelsFirst => (0, hp, wp),
+                    DataFormat::ChannelsLast => (hp, wp, 0),
+                })),
             };
+            let i_shape = input.shape();
+            let h_dim_input = i_shape[h_axis];
+            let w_dim_input = i_shape[w_axis];
 
             let get_idx = |ci: usize, hi: usize, wi: usize| -> usize {
                 match &data_format {
@@ -79,6 +86,7 @@ where
                                 .into_owned();
 
                             window.axis_iter(Axis(c_axis)).enumerate().for_each(|(ci, window)| {
+                                dbg!((ci, hi, wi));
                                 kernels_output[get_idx(ci, hi, wi)] = func(&window);
                             });
                         }
@@ -113,10 +121,18 @@ pub(crate) fn avg_pool2d<A>(
     data_format: DataFormat,
 ) -> Result<Array4<A>, ShapeError>
 where
-    A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero + Div<usize, Output = A> + One,
+    A: Debug
+        + Clone
+        + Copy
+        + Add<Output = A>
+        + Mul<A, Output = A>
+        + Zero
+        + Div<usize, Output = A>
+        + One
+        + Sum<A>,
 {
     let avg = |x: &ArrayView2<A>| -> A {
-        x.iter().sum::<A>() / x.len()
+        x.iter().map(|x| *x).sum::<A>() / x.len()
     };
     pool2d(input, pool_window, strides, padding, data_format, avg)
 }
@@ -129,15 +145,199 @@ pub(crate) fn max_pool2d<A>(
     data_format: DataFormat,
 ) -> Result<Array4<A>, ShapeError>
 where
-    A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero + Ord,
+    A: Debug
+        + Clone
+        + Copy
+        + Add<Output = A>
+        + Mul<A, Output = A>
+        + Neg<Output = A>
+        + One
+        + Zero
+        + Real,
 {
     let max = |x: &ArrayView2<A>| -> A {
-        x.iter().max().unwrap().clone()
+        x.iter().fold(- A::one() / A::zero(), |prev, x: &A| A::max(prev, *x))
     };
     pool2d(input, pool_window, strides, padding, data_format, max)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use ndarray::array;
 
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn get_channels_last_data() -> Array4<f64> {
+        let x1: Array3<f64> = array![
+            [[1.0, 2.0, 1.0], [1.0, 3.0, 2.0], [2.0, 3.0, 1.0], [2.0, 1.0, 5.0], [2.0, 3.0, 4.0]],
+            [[2.0, 1.0, 0.0], [2.0, 4.0, 1.0], [5.0, 6.0, 0.0], [4.0, 2.0, 3.0], [1.0, 6.0, 7.0]],
+            [[5.0, 3.0, 2.0], [7.0, 1.0, 6.0], [4.0, 2.0, 7.0], [2.0, 1.0, 5.0], [1.0, 5.0, 5.0]],
+            [[6.0, 1.0, 3.0], [1.0, 3.0, 2.0], [2.0, 5.0, 4.0], [1.0, 4.0, 2.0], [2.0, 3.0, 4.0]],
+            [[7.0, 2.0, 3.0], [2.0, 4.0, 3.0], [5.0, 6.0, 1.0], [1.0, 1.0, 2.0], [1.0, 1.0, 2.0]]
+        ];
+        let x2: Array3<f64> = array![
+            [[1.0, 2.0, 1.0], [1.0, 3.0, 2.0], [2.0, 3.0, 1.0], [2.0, 1.0, 5.0], [2.0, 3.0, 4.0]],
+            [[2.0, 1.0, 0.0], [2.0, 4.0, 1.0], [5.0, 6.0, 0.0], [4.0, 2.0, 3.0], [1.0, 6.0, 7.0]],
+            [[5.0, 3.0, 2.0], [7.0, 1.0, 6.0], [4.0, 2.0, 7.0], [2.0, 1.0, 5.0], [1.0, 5.0, 5.0]],
+            [[6.0, 1.0, 3.0], [1.0, 3.0, 2.0], [2.0, 5.0, 4.0], [1.0, 4.0, 2.0], [2.0, 3.0, 4.0]],
+            [[7.0, 2.0, 3.0], [2.0, 4.0, 3.0], [5.0, 6.0, 1.0], [1.0, 1.0, 2.0], [1.0, 1.0, 2.0]]
+        ];
+        let x1 = x1.insert_axis(Axis(0));
+        let x2 = x2.insert_axis(Axis(0));
+        let input = stack(Axis(0), &[x1.view(), x2.view()]).unwrap();
+
+        input
+    }
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    fn get_channel_first_data() -> Array4<f64> {
+        let x1: Array3<f64> = array![
+            [[1.0, 1.0, 2.0, 2.0, 2.0],
+             [2.0, 2.0, 5.0, 4.0, 1.0],
+             [5.0, 7.0, 4.0, 2.0, 1.0],
+             [6.0, 1.0, 2.0, 1.0, 2.0],
+             [7.0, 2.0, 5.0, 1.0, 1.0]],
+            [[2.0, 3.0, 3.0, 1.0, 3.0],
+             [1.0, 4.0, 6.0, 2.0, 6.0],
+             [3.0, 1.0, 2.0, 1.0, 5.0],
+             [1.0, 3.0, 5.0, 4.0, 3.0],
+             [2.0, 4.0, 6.0, 1.0, 1.0]],
+            [[1.0, 2.0, 1.0, 5.0, 4.0],
+             [0.0, 1.0, 0.0, 3.0, 7.0],
+             [2.0, 6.0, 7.0, 5.0, 5.0],
+             [3.0, 2.0, 4.0, 2.0, 4.0],
+             [3.0, 3.0, 1.0, 2.0, 2.0]]
+        ];
+        let x2: Array3<f64> = array![
+            [[1.0, 1.0, 2.0, 2.0, 2.0],
+             [2.0, 2.0, 5.0, 4.0, 1.0],
+             [5.0, 7.0, 4.0, 2.0, 1.0],
+             [6.0, 1.0, 2.0, 1.0, 2.0],
+             [7.0, 2.0, 5.0, 1.0, 1.0]],
+            [[2.0, 3.0, 3.0, 1.0, 3.0],
+             [1.0, 4.0, 6.0, 2.0, 6.0],
+             [3.0, 1.0, 2.0, 1.0, 5.0],
+             [1.0, 3.0, 5.0, 4.0, 3.0],
+             [2.0, 4.0, 6.0, 1.0, 1.0]],
+            [[1.0, 2.0, 1.0, 5.0, 4.0],
+             [0.0, 1.0, 0.0, 3.0, 7.0],
+             [2.0, 6.0, 7.0, 5.0, 5.0],
+             [3.0, 2.0, 4.0, 2.0, 4.0],
+             [3.0, 3.0, 1.0, 2.0, 2.0]]
+        ];
+        let x1 = x1.insert_axis(Axis(0));
+        let x2 = x2.insert_axis(Axis(0));
+        let input = stack(Axis(0), &[x1.view(), x2.view()]).unwrap();
+
+        input
+    }
+
+    #[cfg(test)]
+    mod pool2d {
+        use super::*;
+
+        #[test]
+        fn test_channel_first() {
+            let input = get_channel_first_data();
+            // Padding Valid, strides (1, 1)
+            let output = max_pool2d(
+                &input,
+                (2, 2),
+                (1, 1),
+                Padding::Valid,
+                DataFormat::ChannelsFirst
+            ).unwrap();
+            let exp_output_1: Array3<f64> = array![
+                [[2.0, 5.0, 5.0, 4.0],
+                 [7.0, 7.0, 5.0, 4.0],
+                 [7.0, 7.0, 4.0, 2.0],
+                 [7.0, 5.0, 5.0, 2.0]],
+                [[4.0, 6.0, 6.0, 6.0],
+                 [4.0, 6.0, 6.0, 6.0],
+                 [3.0, 5.0, 5.0, 5.0],
+                 [4.0, 6.0, 6.0, 4.0]],
+                [[2.0, 2.0, 5.0, 7.0],
+                 [6.0, 7.0, 7.0, 7.0],
+                 [6.0, 7.0, 7.0, 5.0],
+                 [3.0, 4.0, 4.0, 4.0]]
+            ];
+            let exp_output_2: Array3<f64> = array![
+                [[2.0, 5.0, 5.0, 4.0],
+                 [7.0, 7.0, 5.0, 4.0],
+                 [7.0, 7.0, 4.0, 2.0],
+                 [7.0, 5.0, 5.0, 2.0]],
+                [[4.0, 6.0, 6.0, 6.0],
+                 [4.0, 6.0, 6.0, 6.0],
+                 [3.0, 5.0, 5.0, 5.0],
+                 [4.0, 6.0, 6.0, 4.0]],
+                [[2.0, 2.0, 5.0, 7.0],
+                 [6.0, 7.0, 7.0, 7.0],
+                 [6.0, 7.0, 7.0, 5.0],
+                 [3.0, 4.0, 4.0, 4.0]]
+            ];
+            let exp_output_1 = exp_output_1.insert_axis(Axis(0));
+            let exp_output_2 = exp_output_2.insert_axis(Axis(0));
+            let exp_output = stack(Axis(0), &[exp_output_1.view(), exp_output_2.view()]).unwrap();
+            assert_eq!(output.shape(), &[2, 3, 4, 4]);
+            assert_eq!(output, exp_output);
+
+            // Padding Valid, strides (2, 2)
+            let output = max_pool2d(
+                &input,
+                (2, 2),
+                (2, 2),
+                Padding::Valid,
+                DataFormat::ChannelsFirst,
+            ).unwrap();
+            let exp_output_1: Array3<f64> = array![
+                [[2.0, 5.0],
+                 [7.0, 4.0]],
+                [[4.0, 6.0],
+                 [3.0, 5.0]],
+                [[2.0, 5.0],
+                 [6.0, 7.0]]
+            ];
+            let exp_output_2: Array3<f64> = array![
+                [[2.0, 5.0],
+                 [7.0, 4.0]],
+                [[4.0, 6.0],
+                 [3.0, 5.0]],
+                [[2.0, 5.0],
+                 [6.0, 7.0]]
+            ];
+            let exp_output_1 = exp_output_1.insert_axis(Axis(0));
+            let exp_output_2 = exp_output_2.insert_axis(Axis(0));
+            let exp_output = stack(Axis(0), &[exp_output_1.view(), exp_output_2.view()]).unwrap();
+            assert_eq!(output.shape(), &[2, 3, 2, 2]);
+            assert_eq!(output, exp_output);
+
+            let output = max_pool2d(
+                &input,
+                (3, 3),
+                (1, 1),
+                Padding::Same,
+                DataFormat::ChannelsFirst,
+            ).unwrap();
+            assert_eq!(output.shape(), &[2, 3, 5, 5]);
+            let exp_output_1: Array3<f64> = array![
+                [[2.0, 5.0, 5.0, 5.0, 4.0],
+                 [7.0, 7.0, 7.0, 5.0, 4.0],
+                 [7.0, 7.0, 7.0, 5.0, 4.0],
+                 [7.0, 7.0, 7.0, 5.0, 2.0],
+                 [7.0, 7.0, 5.0, 5.0, 2.0]],
+                [[4.0, 6.0, 6.0, 6.0, 6.0],
+                 [4.0, 6.0, 6.0, 6.0, 6.0],
+                 [4.0, 6.0, 6.0, 6.0, 6.0],
+                 [4.0, 6.0, 6.0, 6.0, 5.0],
+                 [4.0, 6.0, 6.0, 6.0, 4.0]],
+                [[2.0, 2.0, 5.0, 7.0, 7.0],
+                 [6.0, 7.0, 7.0, 7.0, 7.0],
+                 [6.0, 7.0, 7.0, 7.0, 7.0],
+                 [6.0, 7.0, 7.0, 7.0, 5.0],
+                 [3.0, 4.0, 4.0, 4.0, 4.0]]
+            ];
+            let output_1 = output.index_axis(Axis(0), 0);
+            assert_eq!(exp_output_1, output_1);
+        }
+    }
 }

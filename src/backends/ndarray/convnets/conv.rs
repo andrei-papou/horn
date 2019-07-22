@@ -48,6 +48,7 @@ where
 
             let input: Array3<A> = match &padding {
                 Padding::Valid => input.into_owned(),
+                // TODO: [BUG] does not work for channels first
                 Padding::Same => pad_array3(&input, &(hp, wp, 0)),
             };
 
@@ -58,6 +59,7 @@ where
                 }
             };
 
+            // TODO: [BUG] `h_dim_input` and `w_dim_input` should be updated after padding
             for (hi, hr) in (0..(h_dim_input - h_dim_kernel + 1))
                 .step_by(strides.0)
                 .enumerate()
