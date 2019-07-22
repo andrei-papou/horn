@@ -7,6 +7,8 @@ use num_traits::Zero;
 use super::common::pad_array3;
 use crate::backends::convnets::{DataFormat, Padding, Stride2, get_axis_padding, get_conv2d_result_axis_len};
 
+// TODO: kernels should be in format (h, w, in_channels, out_channels)
+
 pub(crate) fn conv2d<A>(
     input_batch: &Array4<A>,
     kernels: &Array4<A>,
