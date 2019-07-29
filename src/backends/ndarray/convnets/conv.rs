@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 use std::ops::{Add, Mul};
 
-use ndarray::{stack, Array1, Array3, Array4, ArrayView3, ArrayView4, Axis, ShapeError, Slice};
+use ndarray::{Array1, Array3, Array4, ArrayView3, Axis, ShapeError, Slice};
 use num_traits::Zero;
 
-use super::common::pad_array3;
-use crate::backends::convnets::{DataFormat, Padding, Stride2, get_axis_padding, get_conv2d_result_axis_len};
-
-// TODO: kernels should be in format (h, w, in_channels, out_channels)
+use super::common::{build_indexer_2d, join_first_axis, pad_array3};
+use crate::backends::convnets::{
+    get_axis_padding, get_conv2d_result_axis_len, DataFormat, Padding, Stride2,
+};
 
 pub(crate) fn conv2d<A>(
     input_batch: &Array4<A>,
@@ -20,10 +20,7 @@ pub(crate) fn conv2d<A>(
 where
     A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero,
 {
-    let (h_axis, w_axis): (usize, usize) = match &data_format {
-        DataFormat::ChannelsFirst => (1, 2),
-        DataFormat::ChannelsLast => (0, 1),
-    };
+    let (h_axis, w_axis, _) = data_format.axis_permut_2d();
 
     let batch_results: Vec<Result<Array4<A>, ShapeError>> = input_batch
         .axis_iter(Axis(0))
@@ -31,37 +28,30 @@ where
             let i_shape = input.shape();
             let h_dim_input = i_shape[h_axis];
             let w_dim_input = i_shape[w_axis];
-            let (num_kernels, k_shape) = kernels.shape().split_at(1);
+            let (k_shape, num_kernels) = kernels.shape().split_at(kernels.shape().len() - 1);
             let res_k = num_kernels[0];
-            let h_dim_kernel = k_shape[h_axis];
-            let w_dim_kernel = k_shape[w_axis];
+            let h_dim_kernel = k_shape[0];
+            let w_dim_kernel = k_shape[1];
 
-            let (hp, wp) = match &padding {
-                Padding::Valid => (0, 0),
-                Padding::Same => (
-                    get_axis_padding(h_dim_input, h_dim_kernel, strides.0),
-                    get_axis_padding(w_dim_input, w_dim_kernel, strides.1),
-                ),
-            };
-            let res_h = get_conv2d_result_axis_len(h_dim_input, h_dim_kernel, strides.0, hp);
-            let res_w = get_conv2d_result_axis_len(w_dim_input, w_dim_kernel, strides.1, wp);
+            let res_h = get_conv2d_result_axis_len(h_dim_input, h_dim_kernel, strides.0, &padding);
+            let res_w = get_conv2d_result_axis_len(w_dim_input, w_dim_kernel, strides.1, &padding);
 
             let mut kernels_output = vec![A::zero(); res_h * res_w * res_k];
 
             let input: Array3<A> = match &padding {
                 Padding::Valid => input.into_owned(),
-                // TODO: [BUG] does not work for channels first
-                Padding::Same => pad_array3(&input, &(hp, wp, 0)),
-            };
-
-            let get_idx = |ki: usize, hi: usize, wi: usize| -> usize {
-                match &data_format {
-                    DataFormat::ChannelsFirst => ki * res_h * res_w + hi * res_w + wi,
-                    DataFormat::ChannelsLast => hi * res_w * res_k + wi * res_k + ki,
+                Padding::Same => {
+                    let hp = get_axis_padding(h_dim_input, h_dim_kernel, strides.0);
+                    let wp = get_axis_padding(w_dim_input, w_dim_kernel, strides.1);
+                    pad_array3(&input, &(hp.0, hp.1, wp.0, wp.1), &data_format, A::zero())
                 }
             };
+            let i_shape = input.shape();
+            let h_dim_input = i_shape[h_axis];
+            let w_dim_input = i_shape[w_axis];
 
-            // TODO: [BUG] `h_dim_input` and `w_dim_input` should be updated after padding
+            let get_idx = build_indexer_2d(res_k, res_h, res_w, &data_format);
+
             for (hi, hr) in (0..(h_dim_input - h_dim_kernel + 1))
                 .step_by(strides.0)
                 .enumerate()
@@ -80,9 +70,12 @@ where
                             Slice::new(wr as isize, Some((wr + w_dim_kernel) as isize), 1),
                         )
                         .into_owned();
-                    kernels.axis_iter(Axis(0)).enumerate().for_each(
-                        |(ki, kernel): (usize, ArrayView3<A>)| {
+                    kernels.axis_iter(Axis(3)).enumerate().for_each(
+                        |(ki, mut kernel): (usize, ArrayView3<A>)| {
                             let b = bias.as_ref().map(|b| b[ki]).unwrap_or(A::zero());
+                            if let DataFormat::ChannelsFirst = &data_format {
+                                kernel = kernel.permuted_axes([2, 0, 1]);
+                            }
                             kernels_output[get_idx(ki, hi, wi)] = (&window * &kernel).sum() + b;
                         },
                     );
@@ -96,136 +89,46 @@ where
             Array4::<A>::from_shape_vec(kernels_output_shape, kernels_output)
         })
         .collect();
-    let batch_results = batch_results
+    let batch_results: Vec<Array4<A>> = batch_results
         .into_iter()
         .collect::<Result<Vec<Array4<A>>, ShapeError>>()?;
 
-    Ok(stack(
-        Axis(0),
-        batch_results
-            .iter()
-            .map(|a| a.view())
-            .collect::<Vec<ArrayView4<A>>>()
-            .as_slice(),
-    )?)
+    Ok(join_first_axis(batch_results)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backends::ndarray::convnets::common::{join_new_axis, test_utils};
     use ndarray::array;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn get_channels_last_data() -> (Array4<f64>, Array4<f64>, Option<Array1<f64>>) {
-        let x1: Array3<f64> = array![
-            [[1.0, 2.0, 1.0], [1.0, 3.0, 2.0], [2.0, 3.0, 1.0], [2.0, 1.0, 5.0], [2.0, 3.0, 4.0]],
-            [[2.0, 1.0, 0.0], [2.0, 4.0, 1.0], [5.0, 6.0, 0.0], [4.0, 2.0, 3.0], [1.0, 6.0, 7.0]],
-            [[5.0, 3.0, 2.0], [7.0, 1.0, 6.0], [4.0, 2.0, 7.0], [2.0, 1.0, 5.0], [1.0, 5.0, 5.0]],
-            [[6.0, 1.0, 3.0], [1.0, 3.0, 2.0], [2.0, 5.0, 4.0], [1.0, 4.0, 2.0], [2.0, 3.0, 4.0]],
-            [[7.0, 2.0, 3.0], [2.0, 4.0, 3.0], [5.0, 6.0, 1.0], [1.0, 1.0, 2.0], [1.0, 1.0, 2.0]]
+    fn get_weights() -> (Array4<f64>, Option<Array1<f64>>) {
+        let ks_1: Array3<f64> = array![
+            [[1., 0.], [0., 3.], [0., 2.]],
+            [[0., 0.], [1., 1.], [0., 0.]],
+            [[1., 0.], [1., 0.], [1., 1.]]
         ];
-        let x2: Array3<f64> = array![
-            [[1.0, 2.0, 1.0], [1.0, 3.0, 2.0], [2.0, 3.0, 1.0], [2.0, 1.0, 5.0], [2.0, 3.0, 4.0]],
-            [[2.0, 1.0, 0.0], [2.0, 4.0, 1.0], [5.0, 6.0, 0.0], [4.0, 2.0, 3.0], [1.0, 6.0, 7.0]],
-            [[5.0, 3.0, 2.0], [7.0, 1.0, 6.0], [4.0, 2.0, 7.0], [2.0, 1.0, 5.0], [1.0, 5.0, 5.0]],
-            [[6.0, 1.0, 3.0], [1.0, 3.0, 2.0], [2.0, 5.0, 4.0], [1.0, 4.0, 2.0], [2.0, 3.0, 4.0]],
-            [[7.0, 2.0, 3.0], [2.0, 4.0, 3.0], [5.0, 6.0, 1.0], [1.0, 1.0, 2.0], [1.0, 1.0, 2.0]]
+        let ks_2: Array3<f64> = array![
+            [[0., 1.], [4., 1.], [0., 1.]],
+            [[1., 1.], [1., 2.], [1., 1.]],
+            [[3., 0.], [0., 1.], [0., 0.]]
         ];
-        let x1 = x1.insert_axis(Axis(0));
-        let x2 = x2.insert_axis(Axis(0));
-        let input = stack(Axis(0), &[x1.view(), x2.view()]).unwrap();
-
-        let k1: Array3<f64> = array![
-            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-            [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]],
-            [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]
+        let ks_3: Array3<f64> = array![
+            [[1., 0.], [4., 1.], [1., 0.]],
+            [[0., 0.], [1., 1.], [0., 0.]],
+            [[1., 0.], [1., 1.], [0., 1.]]
         ];
-        let k2: Array3<f64> = array![
-            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
-            [[0.0, 1.0, 0.0], [1.0, 1.0, 1.0], [0.0, 1.0, 0.0]],
-            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]
-        ];
-        let k1 = k1.insert_axis(Axis(0));
-        let k2 = k2.insert_axis(Axis(0));
-        let kernels = stack(Axis(0), &[k1.view(), k2.view()]).unwrap();
+        let kernels = join_new_axis(vec![ks_1, ks_2, ks_3, ]).unwrap();
         let bias: Option<Array1<f64>> = Some(array![1.0, 2.0]);
 
-        (input, kernels, bias)
-    }
-
-    #[cfg_attr(rustfmt, rustfmt_skip)]
-    fn get_channel_first_data() -> (Array4<f64>, Array4<f64>, Option<Array1<f64>>) {
-        let x1: Array3<f64> = array![
-            [[1.0, 1.0, 2.0, 2.0, 2.0],
-             [2.0, 2.0, 5.0, 4.0, 1.0],
-             [5.0, 7.0, 4.0, 2.0, 1.0],
-             [6.0, 1.0, 2.0, 1.0, 2.0],
-             [7.0, 2.0, 5.0, 1.0, 1.0]],
-            [[2.0, 3.0, 3.0, 1.0, 3.0],
-             [1.0, 4.0, 6.0, 2.0, 6.0],
-             [3.0, 1.0, 2.0, 1.0, 5.0],
-             [1.0, 3.0, 5.0, 4.0, 3.0],
-             [2.0, 4.0, 6.0, 1.0, 1.0]],
-            [[1.0, 2.0, 1.0, 5.0, 4.0],
-             [0.0, 1.0, 0.0, 3.0, 7.0],
-             [2.0, 6.0, 7.0, 5.0, 5.0],
-             [3.0, 2.0, 4.0, 2.0, 4.0],
-             [3.0, 3.0, 1.0, 2.0, 2.0]]
-        ];
-        let x2: Array3<f64> = array![
-            [[1.0, 1.0, 2.0, 2.0, 2.0],
-             [2.0, 2.0, 5.0, 4.0, 1.0],
-             [5.0, 7.0, 4.0, 2.0, 1.0],
-             [6.0, 1.0, 2.0, 1.0, 2.0],
-             [7.0, 2.0, 5.0, 1.0, 1.0]],
-            [[2.0, 3.0, 3.0, 1.0, 3.0],
-             [1.0, 4.0, 6.0, 2.0, 6.0],
-             [3.0, 1.0, 2.0, 1.0, 5.0],
-             [1.0, 3.0, 5.0, 4.0, 3.0],
-             [2.0, 4.0, 6.0, 1.0, 1.0]],
-            [[1.0, 2.0, 1.0, 5.0, 4.0],
-             [0.0, 1.0, 0.0, 3.0, 7.0],
-             [2.0, 6.0, 7.0, 5.0, 5.0],
-             [3.0, 2.0, 4.0, 2.0, 4.0],
-             [3.0, 3.0, 1.0, 2.0, 2.0]]
-        ];
-        let x1 = x1.insert_axis(Axis(0));
-        let x2 = x2.insert_axis(Axis(0));
-        let input = stack(Axis(0), &[x1.view(), x2.view()]).unwrap();
-        let k1: Array3<f64> = array![
-            [[1.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, 0.0, 1.0]],
-            [[0.0, 1.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, 1.0, 0.0]],
-            [[0.0, 0.0, 1.0],
-             [0.0, 1.0, 0.0],
-             [1.0, 0.0, 0.0]]
-        ];
-        let k2: Array3<f64> = array![
-            [[0.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, 0.0, 0.0]],
-            [[0.0, 1.0, 0.0],
-             [1.0, 1.0, 1.0],
-             [0.0, 1.0, 0.0]],
-            [[0.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, 0.0, 0.0]]
-        ];
-        let k1 = k1.insert_axis(Axis(0));
-        let k2 = k2.insert_axis(Axis(0));
-        let kernels = stack(Axis(0), &[k1.view(), k2.view()]).unwrap();
-        let bias: Option<Array1<f64>> = Some(array![1.0, 2.0]);
-
-        (input, kernels, bias)
+        (kernels, bias)
     }
 
     #[test]
     fn test_pad_array3() {
         let arr: Array3<f64> = array![[[1.0, 1.0], [2.0, 2.0]], [[3.0, 3.0], [4.0, 4.0]]];
-        let output = pad_array3(&arr, &(1, 1, 0));
+        let output = pad_array3(&arr, &(1, 1, 1, 1), &DataFormat::ChannelsLast, 0.0f64);
         let exp_output: Array3<f64> = array![
             [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
             [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [0.0, 0.0]],
@@ -235,92 +138,241 @@ mod tests {
         assert_eq!(output, exp_output);
     }
 
+    #[cfg(test)]
+    mod conv2d {
+        use super::*;
+
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[test]
+        fn test_channel_last_strides_1() {
+            let input = test_utils::get_input_channel_last();
+            let (kernels, bias) = get_weights();
+
+            let output = conv2d(
+                &input,
+                &kernels,
+                &bias,
+                (1, 1),
+                Padding::Valid,
+                DataFormat::ChannelsLast,
+            ).unwrap();
+            assert_eq!(output.shape(), &[2, 3, 3, 2]);
+            let exp_output_s1: Array3<f64> = array![
+                [[63., 47.], [74., 58.], [75., 59.]],
+                [[79., 49.], [66., 69.], [76., 72.]],
+                [[69., 60.], [73., 63.], [83., 63.]]
+            ];
+            let exp_output_s2: Array3<f64> = array![
+                [[58., 47.], [62., 60.], [57., 66.]],
+                [[79., 53.], [74., 55.], [82., 70.]],
+                [[73., 65.], [87., 70.], [98., 59.]]
+            ];
+            let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+            assert_eq!(output, exp_output);
+        }
+
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[test]
+        fn test_channel_last_strides_2() {
+            let input = test_utils::get_input_channel_last();
+            let (kernels, bias) = get_weights();
+            let output = conv2d(
+                &input,
+                &kernels,
+                &bias,
+                (2, 2),
+                Padding::Valid,
+                DataFormat::ChannelsLast,
+            ).unwrap();
+            assert_eq!(output.shape(), &[2, 2, 2, 2]);
+            let exp_output_s1: Array3<f64> = array![
+                [[63., 47.], [75., 59.]],
+                [[69., 60.], [83., 63.]]
+            ];
+            let exp_output_s2: Array3<f64> = array![
+                [[58., 47.], [57., 66.]],
+                [[73., 65.], [98., 59.]]
+            ];
+            let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+            assert_eq!(output, exp_output);
+        }
+
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[test]
+        fn test_channel_last_strides_2_1() {
+            let input = test_utils::get_input_channel_last();
+            let (kernels, bias) = get_weights();
+            let output = conv2d(
+                &input,
+                &kernels,
+                &bias,
+                (2, 1),
+                Padding::Valid,
+                DataFormat::ChannelsLast,
+            ).unwrap();
+            assert_eq!(output.shape(), &[2, 2, 3, 2]);
+            let exp_output_s1: Array3<f64> = array![
+                [[63., 47.], [74., 58.], [75., 59.]],
+                [[69., 60.], [73., 63.], [83., 63.]]
+            ];
+            let exp_output_s2: Array3<f64> = array![
+                [[58., 47.], [62., 60.], [57., 66.]],
+                [[73., 65.], [87., 70.], [98., 59.]]
+            ];
+            let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+            assert_eq!(output, exp_output);
+        }
+
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[test]
+        fn test_channel_last_same_padding() {
+            let input = test_utils::get_input_channel_last();
+            let (kernels, bias) = get_weights();
+            let output = conv2d(
+                &input,
+                &kernels,
+                &bias,
+                (1, 1),
+                Padding::Same,
+                DataFormat::ChannelsLast,
+            ).unwrap();
+            assert_eq!(output.shape(), &[2, 5, 5, 2]);
+            let exp_output_s1: Array3<f64> = array![
+                [[15., 17.], [42., 29.], [56., 33.], [65., 41.], [35., 30.]],
+                [[29., 24.], [63., 47.], [74., 58.], [75., 59.], [44., 53.]],
+                [[45., 24.], [79., 49.], [66., 69.], [76., 72.], [48., 51.]],
+                [[39., 34.], [69., 60.], [73., 63.], [83., 63.], [41., 41.]],
+                [[26., 23.], [53., 49.], [45., 50.], [47., 51.], [13., 30.]]
+            ];
+            let exp_output_s2: Array3<f64> = array![
+                [[29., 20.], [37., 36.], [53., 37.], [60., 32.], [49., 28.]],
+                [[44., 27.], [58., 47.], [62., 60.], [57., 66.], [73., 53.]],
+                [[32., 24.], [79., 53.], [74., 55.], [82., 70.], [72., 65.]],
+                [[51., 40.], [73., 65.], [87., 70.], [98., 59.], [69., 74.]],
+                [[39., 29.], [57., 64.], [61., 51.], [53., 68.], [41., 50.]]
+            ];
+            let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+            assert_eq!(output, exp_output);
+        }
+    }
+
     #[cfg_attr(rustfmt, rustfmt_skip)]
     #[test]
-    fn test_conv2d() {
-        let (input, kernels, bias) = get_channels_last_data();
-
-        let exp_o1 = array![
-            [[20.0, 20.0], [31.0, 24.0], [26.0, 25.0]],
-            [[29.0, 28.0], [33.0, 28.0], [33.0, 23.0]],
-            [[32.0, 19.0], [36.0, 28.0], [21.0, 19.0]],
-        ];
+    fn test_channel_first_strides_1() {
+        let input = test_utils::get_input_channel_first();
+        let (kernels, bias) = get_weights();
         let output = conv2d(
             &input,
             &kernels,
             &bias,
             (1, 1),
             Padding::Valid,
-            DataFormat::ChannelsLast
+            DataFormat::ChannelsFirst
         ).unwrap();
-        assert_eq!(output.shape(), &[2, 3, 3, 2]);
-        let act_o1 = output.index_axis(Axis(0), 0);
-        assert_eq!(exp_o1, act_o1);
+        assert_eq!(output.shape(), &[2, 2, 3, 3]);
+        let exp_output_s1: Array3<f64> = array![
+            [[63., 74., 75.], [79., 66., 76.], [69., 73., 83.]],
+            [[47., 58., 59.], [49., 69., 72.], [60., 63., 63.]]
+        ];
+        let exp_output_s2: Array3<f64> = array![
+            [[69., 85., 74.], [102., 74., 75.], [93., 90., 79.]],
+            [[51., 63., 56.], [ 59., 61., 62.], [61., 76., 59.]]
+        ];
+        let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+        assert_eq!(output, exp_output);
+    }
 
-        // (2, 2) strides (symmetric)
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[test]
+    fn test_channel_first_strides_2() {
+        let input = test_utils::get_input_channel_first();
+        let (kernels, bias) = get_weights();
         let output = conv2d(
             &input,
             &kernels,
             &bias,
             (2, 2),
             Padding::Valid,
-            DataFormat::ChannelsLast,
+            DataFormat::ChannelsFirst
         ).unwrap();
         assert_eq!(output.shape(), &[2, 2, 2, 2]);
-        let exp_o1 = array![
-            [[20.0, 20.0], [26.0, 25.0]],
-            [[32.0, 19.0], [21.0, 19.0]],
+        let exp_output_s1: Array3<f64> = array![
+            [[63., 75.], [69., 83.]],
+            [[47., 59.], [60., 63.]]
         ];
-        let act_o1 = output.index_axis(Axis(0), 0);
-        assert_eq!(exp_o1, act_o1);
+        let exp_output_s2: Array3<f64> = array![
+            [[69., 74.], [93., 79.]],
+            [[51., 56.], [61., 59.]]
+        ];
+        let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+        assert_eq!(output, exp_output);
+    }
 
-        // (2, 1) strides (non-symmetric)
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[test]
+    fn test_channel_first_strides_2_1() {
+        let input = test_utils::get_input_channel_first();
+        let (kernels, bias) = get_weights();
         let output = conv2d(
             &input,
             &kernels,
             &bias,
             (2, 1),
             Padding::Valid,
-            DataFormat::ChannelsLast,
+            DataFormat::ChannelsFirst
         ).unwrap();
-        assert_eq!(output.shape(), &[2, 2, 3, 2]);
-        let exp_o1 = array![
-            [[20.0, 20.0], [31.0, 24.0], [26.0, 25.0]],
-            [[32.0, 19.0], [36.0, 28.0], [21.0, 19.0]],
+        assert_eq!(output.shape(), &[2, 2, 2, 3]);
+        let exp_output_s1: Array3<f64> = array![
+            [[63., 74., 75.], [69., 73., 83.]],
+            [[47., 58., 59.], [60., 63., 63.]]
         ];
-        let act_o1 = output.index_axis(Axis(0), 0);
-        assert_eq!(exp_o1, act_o1);
+        let exp_output_s2: Array3<f64> = array![
+            [[69., 85., 74.], [93., 90., 79.]],
+            [[51., 63., 56.], [61., 76., 59.]]
+        ];
+        let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+        assert_eq!(output, exp_output);
+    }
 
-        // Same padding
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[test]
+    fn test_channel_first_same_padding() {
+        let input = test_utils::get_input_channel_first();
+        let (kernels, bias) = get_weights();
         let output = conv2d(
             &input,
             &kernels,
             &bias,
             (1, 1),
             Padding::Same,
-            DataFormat::ChannelsLast,
+            DataFormat::ChannelsFirst
         ).unwrap();
-        assert_eq!(output.shape(), &[2, 5, 5, 2]);
-
-        let (input, kernels, bias) = get_channel_first_data();
-        let exp_o1 = array![
-            [[20.0, 31.0, 26.0],
-             [29.0, 33.0, 33.0],
-             [32.0, 36.0, 21.0]],
-            [[20.0, 24.0, 25.0],
-             [28.0, 28.0, 23.0],
-             [19.0, 28.0, 19.0]]
+        assert_eq!(output.shape(), &[2, 2, 5, 5]);
+        let exp_output_s1: Array3<f64> = array![
+            [[15., 42., 56., 65., 35.],
+             [29., 63., 74., 75., 44.],
+             [45., 79., 66., 76., 48.],
+             [39., 69., 73., 83., 41.],
+             [26., 53., 45., 47., 13.]],
+            [[17., 29., 33., 41., 30.],
+             [24., 47., 58., 59., 53.],
+             [24., 49., 69., 72., 51.],
+             [34., 60., 63., 63., 41.],
+             [23., 49., 50., 51., 30.]]
         ];
-        let output = conv2d(
-            &input,
-            &kernels,
-            &bias,
-            (1, 1),
-            Padding::Valid,
-            DataFormat::ChannelsFirst,
-        ).unwrap();
-        assert_eq!(output.shape(), &[2, 2, 3, 3]);
-        let act_o1 = output.index_axis(Axis(0), 0);
-        assert_eq!(exp_o1, act_o1);
+        let exp_output_s2: Array3<f64> = array![
+            [[25.,  45., 68., 64., 35.],
+             [34.,  69., 85., 74., 50.],
+             [43., 102., 74., 75., 45.],
+             [50.,  93., 90., 79., 41.],
+             [29.,  50., 61., 74., 20.]],
+            [[21.,  30., 28., 43., 36.],
+             [26.,  51., 63., 56., 50.],
+             [35.,  59., 61., 62., 48.],
+             [49.,  61., 76., 59., 43.],
+             [18.,  67., 49., 51., 39.]]
+        ];
+        let exp_output = join_new_axis(vec![exp_output_s1, exp_output_s2]).unwrap();
+        assert_eq!(output, exp_output);
     }
 }

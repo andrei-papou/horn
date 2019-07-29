@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::fmt::{Debug, Display};
 
-use num_traits::{One, Zero};
+use num_traits::{real::Real, One, Zero};
 
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
@@ -149,7 +149,7 @@ pub trait Transpose {
 
 pub trait Backend
 where
-    Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd,
+    Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd + Real,
     Self::CommonRepr: TryInto<Self::Tensor1D, Error = HError>
         + TryInto<Self::Tensor2D, Error = HError>
         + TryInto<Self::Tensor3D, Error = HError>
@@ -167,7 +167,9 @@ where
         + Transpose<Output = Self::Tensor2D>,
     Self::Tensor3D: Tensor<Self::Scalar, Self::CommonRepr>,
     Self::Tensor4D: Tensor<Self::Scalar, Self::CommonRepr>
-        + convnets::Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>,
+        + convnets::Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>
+        + convnets::AvgPool2D<Output = Self::Tensor4D>
+        + convnets::MaxPool2D<Output = Self::Tensor4D>,
     Self::TensorXD: Tensor<Self::Scalar, Self::CommonRepr>
         + Broadcast<Self::TensorXD>
         + Reshape<Output = Self::TensorXD>

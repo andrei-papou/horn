@@ -1,12 +1,13 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
+use std::iter::Sum;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg};
 
 use ndarray::{
     Array, Array1, Array2, Array3, Array4, ArrayD, Axis, Dimension, LinalgScalar, RemoveAxis,
 };
-use num_traits::identities::{One, Zero};
+use num_traits::{real::Real, One, Zero};
 
 use crate::backends::backend::{
     Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean, ReduceSum,
@@ -17,7 +18,7 @@ use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
 
-use super::convnets::conv2d;
+use super::convnets::{avg_pool2d, conv2d, max_pool2d};
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -53,7 +54,14 @@ where
 
 impl<A> Backend for NdArrayBackend<A>
 where
-    A: LinalgScalar + F64CompliantScalar + Neg<Output = A> + PartialOrd + Display + Debug,
+    A: LinalgScalar
+        + F64CompliantScalar
+        + Neg<Output = A>
+        + PartialOrd
+        + Display
+        + Debug
+        + Real
+        + Sum<A>,
 {
     type Scalar = A;
     type CommonRepr = NdArrayCommonRepr<A>;
@@ -354,9 +362,55 @@ where
     }
 }
 
+impl<A> convnets::AvgPool2D for Array4<A>
+where
+    A: LinalgScalar + Debug + Clone + Copy + Neg<Output = A> + PartialOrd + Real + Sum<A>,
+{
+    type Output = Array4<A>;
+
+    fn avg_pool2d(
+        &self,
+        pool_window: convnets::Pool2,
+        strides: convnets::Stride2,
+        padding: convnets::Padding,
+        data_format: convnets::DataFormat,
+    ) -> HResult<Self::Output> {
+        Ok(avg_pool2d(
+            self,
+            pool_window,
+            strides,
+            padding,
+            data_format,
+        )?)
+    }
+}
+
+impl<A> convnets::MaxPool2D for Array4<A>
+where
+    A: LinalgScalar + Debug + Clone + Copy + Neg<Output = A> + PartialOrd + Real + Sum<A>,
+{
+    type Output = Array4<A>;
+
+    fn max_pool2d(
+        &self,
+        pool_window: convnets::Pool2,
+        strides: convnets::Stride2,
+        padding: convnets::Padding,
+        data_format: convnets::DataFormat,
+    ) -> HResult<Self::Output> {
+        Ok(max_pool2d(
+            self,
+            pool_window,
+            strides,
+            padding,
+            data_format,
+        )?)
+    }
+}
+
 impl<A, D> Tensor<A, NdArrayCommonRepr<A>> for Array<A, D>
 where
-    A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialOrd,
+    A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialOrd + Real + Sum<A>,
     D: Dimension,
 {
 }
