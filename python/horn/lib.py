@@ -1,12 +1,12 @@
-from keras.models import load_model
+from keras.models import load_model, Model
 from model_saver import ModelSaver
 
 
-def main():
+def save_model(model: Model, file_path: str):
     ms = ModelSaver()
-    model = load_model('../artifacts/model.h5')
-    ms.save_model(model, '../artifacts/model.horn')
+    ms.save_model(model, file_path=file_path)
 
 
-if __name__ == '__main__':
-    main()
+def convert_model(keras_model_file_path: str, new_model_file_path: str):
+    model = load_model(keras_model_file_path)
+    ModelSaver().save_model(model=model, file_path=new_model_file_path)
