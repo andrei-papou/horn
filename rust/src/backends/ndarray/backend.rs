@@ -10,9 +10,9 @@ use ndarray::{
 use num_traits::{real::Real, One, Zero};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Dot, Exp, FromShapedData, MaskCmp, ReduceMean, ReduceSum,
-    Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul, TensorNeg,
-    TensorSub, Transpose,
+    Backend, Broadcast, Container, Dot, Exp, FromFile, FromShapedData, MaskCmp, ReduceMean,
+    ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul,
+    TensorNeg, TensorSub, Transpose,
 };
 use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
@@ -335,6 +335,13 @@ where
             .into_dimensionality::<D>()
             .map_err(|err| err.into())
     }
+}
+
+impl<A, D> FromFile for Array<A, D>
+where
+    A: From<f64>,
+    D: Dimension,
+{
 }
 
 impl<A> convnets::Conv2D<Array4<A>, Array1<A>> for Array4<A>

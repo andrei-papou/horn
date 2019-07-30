@@ -15,5 +15,8 @@ mod model;
 pub use common::types::{HError, HResult};
 pub use model::Model;
 
+// Useful traits
+pub use backends::FromFile;
+
 // Backends
 pub use backends::NdArrayBackend;

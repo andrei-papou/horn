@@ -3,10 +3,11 @@ extern crate ndarray;
 
 use std::convert::TryInto;
 
-use horn::{Model, NdArrayBackend, HResult};
+use horn::{Model, NdArrayBackend, HResult, FromFile};
 use ndarray::{array, Array2};
 
 fn run_model() -> HResult<()> {
+    let _input = Array2::<f64>::from_file("./input.data")?;
     let input: Array2<f64> = array![
         [5.1, 3.5, 1.4, 0.2],
         [5.5, 2.4, 3.7, 1. ],

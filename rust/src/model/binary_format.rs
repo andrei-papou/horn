@@ -7,9 +7,10 @@ use byteorder::{NativeEndian, ReadBytesExt};
 use crate::backends::FromShapedData;
 use crate::common::types::{HError, HResult};
 
-const BYTES_PER_ENTRY_SIZE: usize = 4;
-const BYTES_PER_WEIGHT_ID: usize = 2;
-const F64_SIZE: usize = 8;
+const BYTES_PER_ENTRY_SIZE: usize = std::mem::size_of::<u32>();
+const BYTES_PER_WEIGHT_ID: usize = std::mem::size_of::<u16>();
+const F64_SIZE: usize = std::mem::size_of::<f64>();
+const U32_SIZE: usize = std::mem::size_of::<u32>();
 
 pub(crate) struct WeightsMap(HashMap<u16, Vec<f64>>);
 
@@ -72,18 +73,29 @@ fn read_wid(reader: &mut BufReader<File>) -> Result<u16, IOError> {
     Cursor::new(buffer).read_u16::<NativeEndian>()
 }
 
-fn read_weights(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<f64>, IOError> {
+fn read_f64s(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<f64>, IOError> {
     let len = num_bytes / F64_SIZE;
-    let mut weights = Vec::with_capacity(len);
+    let mut data = Vec::with_capacity(len);
     for _ in 0..len {
         let mut buffer = [0u8; F64_SIZE];
         reader.read_exact(&mut buffer)?;
-        weights.push(Cursor::new(buffer).read_f64::<NativeEndian>()?);
+        data.push(Cursor::new(buffer).read_f64::<NativeEndian>()?);
     }
-    Ok(weights)
+    Ok(data)
 }
 
-pub(crate) fn decode_from_file(file_path: &str) -> HResult<ModelData> {
+fn read_u32s(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<u32>, IOError> {
+    let len = num_bytes / U32_SIZE;
+    let mut data = Vec::with_capacity(len);
+    for _ in 0..len {
+        let mut buffer = [0u8; U32_SIZE];
+        reader.read_exact(&mut buffer)?;
+        data.push(Cursor::new(buffer).read_u32::<NativeEndian>()?);
+    }
+    Ok(data)
+}
+
+pub(crate) fn decode_model_from_file(file_path: &str) -> HResult<ModelData> {
     let f = File::open(file_path)?;
     let mut reader = BufReader::new(f);
 
@@ -94,11 +106,29 @@ pub(crate) fn decode_from_file(file_path: &str) -> HResult<ModelData> {
     let mut weights = HashMap::new();
     while let Ok(wid) = read_wid(&mut reader) {
         let len = read_size(&mut reader)?;
-        let weight_arr = read_weights(&mut reader, len)?;
+        let weight_arr = read_f64s(&mut reader, len)?;
         if let Some(_) = weights.insert(wid, weight_arr) {
             return Err(format_err!("Duplicated weights ID: {}", wid));
         };
     }
 
     Ok(ModelData::new(spec, WeightsMap(weights)))
+}
+
+pub(crate) fn decode_data_from_file<D>(file_path: &str) -> HResult<D>
+where
+    D: FromShapedData<Error = HError>,
+{
+    let f = File::open(file_path)?;
+    let mut reader = BufReader::new(f);
+
+    let shape_len = read_size(&mut reader)?;
+    let shape: Vec<usize> = read_u32s(&mut reader, shape_len)?
+        .into_iter()
+        .map(|x| x as usize)
+        .collect();
+    let data_len = read_size(&mut reader)?;
+    let data: Vec<f64> = read_f64s(&mut reader, data_len)?;
+
+    D::from_shaped_data(data, shape)
 }

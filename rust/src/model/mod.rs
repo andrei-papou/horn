@@ -6,9 +6,12 @@ use serde_json::{from_str as json_from_str, Value};
 use crate::backends::Backend;
 use crate::common::traits::Name;
 use crate::common::types::HResult;
-use crate::layers::{Apply, Conv2DLayer, DenseLayer, FromJson, Relu, Sigmoid, Softmax, Tanh};
+use crate::layers::{
+    Apply, AvgPool2DLayer, Conv2DLayer, DenseLayer, FromJson, MaxPool2DLayer, Relu, Sigmoid,
+    Softmax, Tanh,
+};
 
-use binary_format::decode_from_file;
+use binary_format::decode_model_from_file;
 
 pub struct Model<'a, B: Backend + 'a> {
     name: String,
@@ -29,7 +32,7 @@ struct ModelSpec {
 
 impl<'a, B: Backend + 'a> Model<'a, B> {
     pub fn from_file(file_path: &str) -> HResult<Model<B>> {
-        let model_data = decode_from_file(file_path)?;
+        let model_data = decode_model_from_file(file_path)?;
         let (spec, mut weights_map) = model_data.unwrap();
         let spec: ModelSpec = json_from_str(&spec)?;
 
@@ -42,6 +45,12 @@ impl<'a, B: Backend + 'a> Model<'a, B> {
             };
 
             layers.push(match layer_type.as_ref() {
+                AvgPool2DLayer::<B>::TYPE => {
+                    Box::new(AvgPool2DLayer::<B>::from_json(&lo, &mut weights_map)?)
+                }
+                MaxPool2DLayer::<B>::TYPE => {
+                    Box::new(MaxPool2DLayer::<B>::from_json(&lo, &mut weights_map)?)
+                }
                 Conv2DLayer::<B>::TYPE => {
                     Box::new(Conv2DLayer::<B>::from_json(&lo, &mut weights_map)?)
                 }

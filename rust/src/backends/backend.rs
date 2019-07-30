@@ -5,6 +5,7 @@ use num_traits::{real::Real, One, Zero};
 
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
+use crate::model::binary_format::decode_data_from_file;
 
 use super::convnets;
 
@@ -77,6 +78,7 @@ pub trait Tensor<Scalar, CommonRepr>:
     + Shape
     + FromShapedData<Error = HError>
     + TryInto<CommonRepr, Error = HError>
+    + FromFile
 where
     Self: Sized,
     <Self as Container>::Elem: PartialOrd,
@@ -139,6 +141,15 @@ where
     type Error;
 
     fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Self, Self::Error>;
+}
+
+pub trait FromFile
+where
+    Self: Sized + FromShapedData<Error = HError>,
+{
+    fn from_file(file_path: &str) -> HResult<Self> {
+        decode_data_from_file(file_path)
+    }
 }
 
 pub trait Transpose {
