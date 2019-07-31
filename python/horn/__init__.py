@@ -1,5 +1,5 @@
 from keras.models import load_model, Model
-from model_saver import ModelSaver
+from horn.model_saver import ModelSaver
 
 
 def save_model(model, file_path):

@@ -6,8 +6,8 @@ from keras import Model, backend, activations
 from keras.layers import Layer, Dense, Activation
 from keras.layers.advanced_activations import Softmax
 
-from binary_format import encode_model
-from exceptions import NotSupportedException
+from horn.binary_format import encode_model
+from horn.exceptions import NotSupportedException
 
 
 def get_layer_type(layer):
