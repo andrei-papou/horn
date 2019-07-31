@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Cursor, Error as IOError, Read};
 
-use byteorder::{NativeEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt};
 
 use crate::backends::FromShapedData;
 use crate::common::types::{HError, HResult};
@@ -64,13 +64,13 @@ impl ModelData {
 fn read_size(reader: &mut BufReader<File>) -> Result<usize, IOError> {
     let mut buffer = [0u8; BYTES_PER_ENTRY_SIZE];
     reader.read_exact(&mut buffer)?;
-    Ok(Cursor::new(buffer).read_u32::<NativeEndian>()? as usize)
+    Ok(Cursor::new(buffer).read_u32::<BigEndian>()? as usize)
 }
 
 fn read_wid(reader: &mut BufReader<File>) -> Result<u16, IOError> {
     let mut buffer = [0u8; BYTES_PER_WEIGHT_ID];
     reader.read_exact(&mut buffer)?;
-    Cursor::new(buffer).read_u16::<NativeEndian>()
+    Cursor::new(buffer).read_u16::<BigEndian>()
 }
 
 fn read_f64s(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<f64>, IOError> {
@@ -79,7 +79,7 @@ fn read_f64s(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<f64>,
     for _ in 0..len {
         let mut buffer = [0u8; F64_SIZE];
         reader.read_exact(&mut buffer)?;
-        data.push(Cursor::new(buffer).read_f64::<NativeEndian>()?);
+        data.push(Cursor::new(buffer).read_f64::<BigEndian>()?);
     }
     Ok(data)
 }
@@ -90,7 +90,7 @@ fn read_u32s(reader: &mut BufReader<File>, num_bytes: usize) -> Result<Vec<u32>,
     for _ in 0..len {
         let mut buffer = [0u8; U32_SIZE];
         reader.read_exact(&mut buffer)?;
-        data.push(Cursor::new(buffer).read_u32::<NativeEndian>()?);
+        data.push(Cursor::new(buffer).read_u32::<BigEndian>()?);
     }
     Ok(data)
 }
