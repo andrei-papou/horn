@@ -26,11 +26,20 @@ def encode_tensor_id(tid):
     return struct.pack('>H', tid)
 
 
-def encode_tensor(tensor):
+def encode_tensor_flat(tensor):
     # type: (np.ndarray) -> bytes
     tensor = tensor.byteswap() if SWAP_NEEDED else tensor
     tensor_repr = tensor.astype(TENSOR_DATA_TYPE).flatten().tobytes()
     return _prepend_bytes_size(tensor_repr)
+
+
+def encode_tensor(tensor):
+    # type: (np.ndarray) -> bytes
+    shape_repr = bytes()
+    for d in tensor.shape:
+        shape_repr += struct.pack('>L', d)
+    shape_repr = _prepend_bytes_size(shape_repr)
+    return shape_repr + encode_tensor_flat(tensor)
 
 
 def encode_model(spec, weights):
@@ -46,5 +55,5 @@ def encode_model(spec, weights):
     model_repr = encode_json(spec)
     for k, w in weights.items():
         model_repr += encode_tensor_id(k)
-        model_repr += encode_tensor(w)
+        model_repr += encode_tensor_flat(w)
     return model_repr

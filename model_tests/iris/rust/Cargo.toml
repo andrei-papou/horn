@@ -1,0 +1,7 @@
+[package]
+name = "test_iris"
+version = "0.1.0"
+authors = ["andrei-papou <popow.andrej2009@yandex.ru>"]
+edition = "2018"
+
+[dependencies]

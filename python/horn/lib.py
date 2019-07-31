@@ -5,8 +5,9 @@ import numpy as np
 from keras import Model, backend, activations
 from keras.layers import Layer, Dense, Activation
 from keras.layers.advanced_activations import Softmax
+from keras.models import load_model
 
-from horn.binary_format import encode_model
+from horn.binary_format import encode_model, encode_tensor
 from horn.exceptions import NotSupportedException
 
 
@@ -135,3 +136,20 @@ class ModelSaver(object):
 
         with open(file_path, 'wb') as f:
             f.write(model_repr)
+
+
+def save_model(model, file_path):
+    # type: (Model, str) -> None
+    ModelSaver().save_model(model, file_path=file_path)
+
+
+def convert_model(keras_model_file_path, new_model_file_path):
+    # type: (str, str) -> None
+    model = load_model(keras_model_file_path)
+    ModelSaver().save_model(model=model, file_path=new_model_file_path)
+
+
+def save_tensor(tensor, file_path):
+    # type: (np.ndarray, str) -> None
+    with open(file_path, 'wb') as f:
+        f.write(encode_tensor(tensor))
