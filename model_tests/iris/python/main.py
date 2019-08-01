@@ -1,7 +1,7 @@
 import os
-from typing import Tuple
+import sys
+from time import time
 
-import numpy as np
 from horn import save_model, save_tensor
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
@@ -43,7 +43,7 @@ y = encoder.fit_transform(y_)
 train_x, test_x, train_y, test_y = train_test_split(x, y, test_size=0.20)
 
 
-def create_model():
+def _get_model() -> Model:
     if os.path.exists(KERAS_MODEL_FILE_PATH) and os.path.isfile(KERAS_MODEL_FILE_PATH):
         model = load_model(KERAS_MODEL_FILE_PATH)
         print('Loaded model from {}'.format(model))
@@ -74,6 +74,11 @@ def create_model():
         print('Final test set accuracy: {:4f}'.format(results[1]))
 
         model.save(KERAS_MODEL_FILE_PATH)
+    return model
+
+
+def create_model():
+    model = _get_model()
     save_model(model, HORN_MODEL_FILE_PATH)
 
 
@@ -84,6 +89,32 @@ def create_testing_data():
         save_tensor(test_y, TEST_DATA_Y_FILE_PATH)
 
 
-def test_performance():
-    # TODO: load model and measure its performance on test data
-    pass
+def measure_performance():
+    model = _get_model()
+    start = time()
+    for _ in range(1000):
+        model.evaluate(test_x, test_y)
+    print('Keras (Python) performance: {}'.format((time() - start) / 1000))
+
+
+COMMAND_CREATE_MODEL = 'create_model'
+COMMAND_CREATE_TESTING_DATA = 'create_testing_data'
+COMMAND_MEASURE_PERFORMANCE = 'measure_performance'
+COMMANDS_MAP = {
+    COMMAND_CREATE_MODEL: create_model,
+    COMMAND_CREATE_TESTING_DATA: create_testing_data,
+    COMMAND_MEASURE_PERFORMANCE: measure_performance,
+}
+
+
+def main():
+    if len(sys.argv) < 2:
+        raise ValueError('Please specify the command')
+    command = sys.argv[1]
+    if command not in COMMANDS_MAP:
+        raise ValueError('Unknown command')
+    COMMANDS_MAP[command]()
+
+
+if __name__ == '__main__':
+    main()

@@ -28,8 +28,9 @@ def encode_tensor_id(tid):
 
 def encode_tensor_flat(tensor):
     # type: (np.ndarray) -> bytes
-    tensor = tensor.byteswap() if SWAP_NEEDED else tensor
-    tensor_repr = tensor.astype(TENSOR_DATA_TYPE).flatten().tobytes()
+    tensor = tensor.astype(TENSOR_DATA_TYPE)
+    tensor = tensor.byteswap().newbyteorder('>') if SWAP_NEEDED else tensor
+    tensor_repr = tensor.flatten().tobytes()
     return _prepend_bytes_size(tensor_repr)
 
 

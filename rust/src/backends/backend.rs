@@ -65,6 +65,12 @@ where
     fn mask_eq(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
 }
 
+pub trait OneHotMax {
+    type Output;
+
+    fn one_hot_max(&self, axis: usize) -> HResult<Self::Output>;
+}
+
 pub trait Tensor<Scalar, CommonRepr>:
     TensorAdd<Self, Output = Self>
     + TensorSub<Self, Output = Self>
@@ -75,10 +81,12 @@ pub trait Tensor<Scalar, CommonRepr>:
     + Exp<Output = Self>
     + Container<Elem = Scalar>
     + MaskCmp<Mask = Self>
+    + OneHotMax<Output = Self>
     + Shape
     + FromShapedData<Error = HError>
     + TryInto<CommonRepr, Error = HError>
     + FromFile
+    + Debug
 where
     Self: Sized,
     <Self as Container>::Elem: PartialOrd,

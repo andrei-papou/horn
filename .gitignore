@@ -1,9 +1,11 @@
 # Rust
-
 rust/target
 **/*.rs.bk
 rust/Cargo.lock
 .idea/
+
+# Artifacts
+artifacts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

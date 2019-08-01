@@ -14,9 +14,10 @@ mod model;
 
 pub use common::types::{HError, HResult};
 pub use model::Model;
+pub use model::test_utils as model_test_utils;
 
 // Useful traits
-pub use backends::FromFile;
+pub use backends::{FromFile, OneHotMax};
 
 // Backends
 pub use backends::NdArrayBackend;
