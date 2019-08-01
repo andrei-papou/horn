@@ -17,8 +17,8 @@ from horn import save_model
 model = Model(name='mymodel')  # Keras model goes here
 # Model is trained here
 
-save_model(model, 'mymodel.horn')
+save_model(model, 'mymodel.model')
 ```
 
-The `*.horn` binary file is now the representation of your model.
+The `*.model` binary file is now the representation of your model.
  It includes the architecture and weights.
