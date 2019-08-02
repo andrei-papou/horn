@@ -4,6 +4,7 @@ extern crate failure;
 extern crate failure_derive;
 extern crate ndarray;
 extern crate num_traits;
+extern crate openblas_src;
 extern crate serde;
 extern crate serde_json;
 

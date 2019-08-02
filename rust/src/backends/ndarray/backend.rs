@@ -107,7 +107,7 @@ where
     type Output = Array<A, D>;
 
     fn tensor_add(&self, rhs: &Array<A, D>) -> HResult<Array<A, D>> {
-        check_shapes_equal(self, rhs)?;
+        // (OPT) check_shapes_equal(self, rhs)?;
         Ok(self + rhs)
     }
 }
@@ -120,7 +120,7 @@ where
     type Output = Array<A, D>;
 
     fn tensor_mul(&self, rhs: &Array<A, D>) -> HResult<Array<A, D>> {
-        check_shapes_equal(self, rhs)?;
+        // (OPT) check_shapes_equal(self, rhs)?;
         Ok(self * rhs)
     }
 }

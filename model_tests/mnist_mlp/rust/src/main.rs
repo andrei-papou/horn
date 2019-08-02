@@ -13,8 +13,11 @@ impl model_test_utils::TestCommandRunner for NdArrayRunner {
     fn test_correctness() -> HResult<()> {
         let xs: Array2<f64> = Array2::from_file("../artifacts/x.data")?;
         let ys: Array2<f64> = Array2::from_file("../artifacts/y.data")?;
-        let model: Model<NdArrayBackend<f64>> = Model::from_file("../artifacts/iris.model")?;
+        println!("Started model loading");
+        let model: Model<NdArrayBackend<f64>> = Model::from_file("../artifacts/mnist_mlp.model")?;
+        println!("Model is loaded. Started model evaluation");
         let output: Array2<f64> = model.run(xs.try_into()?)?.try_into()?;
+        println!("Model is evaluated");
         let output = output.one_hot_max(1)?;
 
         assert_eq!(output, ys);
@@ -23,7 +26,7 @@ impl model_test_utils::TestCommandRunner for NdArrayRunner {
 
     fn test_performance() -> HResult<()> {
         let xs: Array2<f64> = Array2::from_file("../artifacts/x.data")?;
-        let model: Model<NdArrayBackend<f64>> = Model::from_file("../artifacts/iris.model")?;
+        let model: Model<NdArrayBackend<f64>> = Model::from_file("../artifacts/mnist_mlp.model")?;
 
         let mut cumulative_time: u128 = 0;
         for _ in 0..1000 {
