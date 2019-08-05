@@ -2,8 +2,7 @@ use std::convert::TryFrom;
 use std::process;
 
 use crate::backends::Backend;
-use crate::common::types::{HResult, HError};
-
+use crate::common::types::{HError, HResult};
 
 enum TestCommand {
     Correctness,
@@ -59,8 +58,8 @@ where
         Some(v) => v,
         None => return Err(String::from("Command name is not provided.")),
     };
-    let cmd = TestCommand::try_from(cmd_name.as_str())
-        .map_err(|_| String::from("Invalid command."))?;
+    let cmd =
+        TestCommand::try_from(cmd_name.as_str()).map_err(|_| String::from("Invalid command."))?;
     cmd.execute::<R>().map_err(|err| format!("{}", err))
 }
 

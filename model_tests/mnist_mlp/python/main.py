@@ -56,8 +56,6 @@ def get_model():
 
 
 if __name__ == '__main__':
-    print(x_test.shape)
-    print(y_test.shape)
     handle_cli_command(
         model_name='mnist_mlp',
         model_getter=get_model,

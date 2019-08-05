@@ -65,6 +65,21 @@ where
     fn mask_eq(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
 }
 
+pub trait Abs: Container
+where
+    <Self as Container>::Elem: Real,
+{
+    type Output;
+
+    fn abs(&self) -> HResult<Self::Output>;
+}
+
+pub trait IntoScalar {
+    type Output;
+
+    fn into_scalar(self) -> HResult<Self::Output>;
+}
+
 pub trait OneHotMax {
     type Output;
 

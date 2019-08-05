@@ -5,14 +5,15 @@ use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg};
 
 use ndarray::{
-    Array, Array1, Array2, Array3, Array4, ArrayD, Axis, Dimension, LinalgScalar, RemoveAxis,
+    Array, Array0, Array1, Array2, Array3, Array4, ArrayD, Axis, Dimension, LinalgScalar,
+    RemoveAxis,
 };
 use num_traits::{real::Real, One, Zero};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Dot, Exp, FromFile, FromShapedData, MaskCmp, ReduceMean,
-    ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv, TensorElemInv, TensorMul,
-    TensorNeg, TensorSub, Transpose, OneHotMax,
+    Abs, Backend, Broadcast, Container, Dot, Exp, FromFile, FromShapedData, IntoScalar, MaskCmp,
+    OneHotMax, ReduceMean, ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv,
+    TensorElemInv, TensorMul, TensorNeg, TensorSub, Transpose,
 };
 use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
@@ -193,6 +194,27 @@ where
     }
 }
 
+impl<A, D> Abs for Array<A, D>
+where
+    Self: Container<Elem = A>,
+    A: Real,
+    D: Dimension,
+{
+    type Output = Array<A, D>;
+
+    fn abs(&self) -> HResult<Array<A, D>> {
+        Ok(self.map(|x| x.abs()))
+    }
+}
+
+impl<A> IntoScalar for Array0<A> {
+    type Output = A;
+
+    fn into_scalar(self) -> HResult<A> {
+        Ok(self.into_scalar())
+    }
+}
+
 impl<A, D> OneHotMax for Array<A, D>
 where
     Self: Container<Elem = A> + TensorDiv<Self, Output = Self> + MaskCmp<Mask = Self>,
@@ -202,15 +224,19 @@ where
     type Output = Array<A, D>;
 
     fn one_hot_max(&self, axis: usize) -> HResult<Array<A, D>> {
-        let maxes = self.map_axis(Axis(axis), |vals| {
-            vals.fold(A::min_value(), |m, x| m.max(*x))
-        }).insert_axis(Axis(axis));
+        let maxes = self
+            .map_axis(Axis(axis), |vals| {
+                vals.fold(A::min_value(), |m, x| m.max(*x))
+            })
+            .insert_axis(Axis(axis));
         let maxes = match maxes.broadcast(self.dim()) {
             Some(v) => v,
             None => return Err(format_err!("Cannot broadcast during one_hot_max.")),
         };
         let mut result = self.clone();
-        result.zip_mut_with(&maxes, |x, m| {*x = if m == x { A::one() } else { A::zero() }});
+        result.zip_mut_with(&maxes, |x, m| {
+            *x = if m == x { A::one() } else { A::zero() }
+        });
         Ok(result)
     }
 }
@@ -439,7 +465,14 @@ where
 
 impl<A, D> Tensor<A, NdArrayCommonRepr<A>> for Array<A, D>
 where
-    A: LinalgScalar + Clone + F64CompliantScalar + Neg<Output = A> + PartialOrd + Real + Sum<A> + Debug,
+    A: LinalgScalar
+        + Clone
+        + F64CompliantScalar
+        + Neg<Output = A>
+        + PartialOrd
+        + Real
+        + Sum<A>
+        + Debug,
     D: Dimension + RemoveAxis,
 {
 }

@@ -14,8 +14,9 @@ from horn import save_model, save_tensor
 
 COMMAND_CREATE_MODEL = 'create_model'
 COMMAND_CREATE_TEST_DATA = 'create_test_data'
+COMMAND_TEST_CORRECTNESS = 'test_correctness'
 COMMAND_TEST_PERFORMANCE = 'test_performance'
-COMMANDS = {COMMAND_CREATE_MODEL, COMMAND_CREATE_TEST_DATA, COMMAND_TEST_PERFORMANCE}
+COMMANDS = {COMMAND_CREATE_MODEL, COMMAND_CREATE_TEST_DATA, COMMAND_TEST_CORRECTNESS, COMMAND_TEST_PERFORMANCE}
 
 
 def _artifacts_file_path(file_name):
@@ -67,13 +68,20 @@ def _create_test_data(xs, ys):
         save_tensor(ys, ys_file_path)
 
 
+def _test_correctness(model_name, model_getter, xs, ys):
+    # type: (str, Callable[[], Model], np.ndarray, np.ndarray) -> None
+    model = _get_model(model_name, model_getter)
+    score = model.evaluate(xs, ys, verbose=0)
+    print('Keras (Python) accuracy: {}'.format(score[1]))
+
+
 def _test_performance(model_name, model_getter, xs, ys):
     # type: (str, Callable[[], Model], np.ndarray, np.ndarray) -> None
     model = _get_model(model_name, model_getter)
     cumulative_time = 0.0
     for i in range(1000):
         start = time()
-        model.evaluate(xs, ys)
+        model.evaluate(xs, ys, verbose=0)
         cumulative_time += time() - start
 
     print('Keras (Python) performance: {}'.format(cumulative_time * 1e6))
@@ -90,6 +98,8 @@ def handle_cli_command(model_name, model_getter, xs, ys):
         _create_model(model_name, model_getter)
     elif command == COMMAND_CREATE_TEST_DATA:
         _create_test_data(xs, ys)
+    elif command == COMMAND_TEST_CORRECTNESS:
+        _test_correctness(model_name, model_getter, xs, ys)
     elif command == COMMAND_TEST_PERFORMANCE:
         _test_performance(model_name, model_getter, xs, ys)
 
