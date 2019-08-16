@@ -2,9 +2,9 @@ use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
-use crate::num_traits::{One, Zero};
-use crate::serde::{Deserialize, Serialize};
-use crate::serde_json::{from_value, Value};
+use num_traits::{One, Zero};
+use serde::{Deserialize, Serialize};
+use serde_json::{from_value, Value};
 
 use crate::backends::backend::{
     Backend, ClipByValueInPlace, Container, Exp, ReduceSum, Reshape, Shape, ShapeVec, TensorAdd,

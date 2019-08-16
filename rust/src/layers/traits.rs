@@ -1,4 +1,4 @@
-use crate::serde_json::Value;
+use serde_json::Value;
 
 use crate::backends::backend::Backend;
 use crate::common::types::HResult;
