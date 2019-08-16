@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 use std::iter::Sum;
@@ -11,9 +12,9 @@ use ndarray::{
 use num_traits::{real::Real, One, Zero};
 
 use crate::backends::backend::{
-    Abs, Backend, Broadcast, Container, Dot, Exp, FromFile, FromShapedData, IntoScalar, MaskCmp,
-    OneHotMax, ReduceMean, ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd, TensorDiv,
-    TensorElemInv, TensorMul, TensorNeg, TensorSub, Transpose,
+    Abs, Backend, ClipByValueInPlace, Container, Dot, Exp, FromFile, FromShapedData, IntoScalar,
+    MaskCmp, OneHotMax, ReduceMean, ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd,
+    TensorAddInPlace, TensorDiv, TensorDivInPlace, TensorElemInv, TensorMul, TensorNeg, TensorSub,
 };
 use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
@@ -64,9 +65,12 @@ where
         + Real
         + Sum<A>,
 {
+    const NAME: &'static str = "ndarray";
+
     type Scalar = A;
     type CommonRepr = NdArrayCommonRepr<A>;
 
+    type Tensor0D = Array0<A>;
     type Tensor1D = Array1<A>;
     type Tensor2D = Array2<A>;
     type Tensor3D = Array3<A>;
@@ -74,6 +78,7 @@ where
     type TensorXD = ArrayD<A>;
 }
 
+#[allow(dead_code)]
 fn check_shapes_equal<T: Shape>(lhs: &T, rhs: &T) -> HResult<()> {
     let lhs_shape = lhs.shape();
     let rhs_shape = rhs.shape();
@@ -110,6 +115,17 @@ where
     fn tensor_add(&self, rhs: &Array<A, D>) -> HResult<Array<A, D>> {
         // (OPT) check_shapes_equal(self, rhs)?;
         Ok(self + rhs)
+    }
+}
+
+impl<A, D1, D2> TensorAddInPlace<Array<A, D2>> for Array<A, D1>
+where
+    A: LinalgScalar + One,
+    D1: Dimension,
+    D2: Dimension,
+{
+    fn tensor_add_in_place(&mut self, rhs: &Array<A, D2>) -> HResult<()> {
+        Ok(self.scaled_add(A::one(), rhs))
     }
 }
 
@@ -174,6 +190,20 @@ where
     }
 }
 
+impl<A, D1, D2> TensorDivInPlace<Array<A, D2>> for Array<A, D1>
+where
+    A: LinalgScalar,
+    D1: Dimension,
+    D2: Dimension,
+{
+    fn tensor_div_in_place(&mut self, rhs: &Array<A, D2>) -> HResult<()> {
+        self.zip_mut_with(rhs, |x, rx| {
+            *x = *x / *rx;
+        });
+        Ok(())
+    }
+}
+
 impl<A, D> MaskCmp for Array<A, D>
 where
     A: PartialOrd + One + Zero + Clone,
@@ -181,16 +211,34 @@ where
 {
     type Mask = Array<A, D>;
 
-    fn mask_lt(&self, x: A) -> HResult<Self::Mask> {
-        Ok(self.map(|a| if *a < x { A::one() } else { A::zero() }))
+    fn mask_cmp(&self, x: A, ord: &Ordering) -> HResult<Self::Mask> {
+        Ok(self.map(|a| match a.partial_cmp(&x) {
+            Some(x_ord) => {
+                if &x_ord == ord {
+                    A::one()
+                } else {
+                    A::zero()
+                }
+            }
+            None => a.clone(),
+        }))
     }
+}
 
-    fn mask_gt(&self, x: A) -> HResult<Self::Mask> {
-        Ok(self.map(|a| if *a > x { A::one() } else { A::zero() }))
-    }
-
-    fn mask_eq(&self, x: A) -> HResult<Self::Mask> {
-        Ok(self.map(|a| if *a == x { A::one() } else { A::zero() }))
+impl<A, D> ClipByValueInPlace for Array<A, D>
+where
+    A: PartialOrd + Clone + Copy,
+    D: Dimension,
+{
+    fn clip_by_value_in_place(&mut self, mut val: A, ord: &Ordering) -> HResult<()> {
+        self.iter_mut().for_each(|x| {
+            if let Some(x_ord) = x.partial_cmp(&&mut val) {
+                if &x_ord == ord {
+                    *x = val;
+                }
+            }
+        });
+        Ok(())
     }
 }
 
@@ -241,14 +289,6 @@ where
     }
 }
 
-impl<A: Clone> Transpose for Array2<A> {
-    type Output = Array2<A>;
-
-    fn transpose(&self) -> HResult<Array2<A>> {
-        Ok(self.t().to_owned())
-    }
-}
-
 impl<A> Dot<Array2<A>> for Array2<A>
 where
     A: LinalgScalar,
@@ -271,30 +311,13 @@ where
 
 impl<A, D> Exp for Array<A, D>
 where
-    A: F64CompliantScalar + Copy,
+    A: Real,
     D: Dimension,
 {
     type Output = Array<A, D>;
 
     fn exp(&self) -> Array<A, D> {
-        self.map(|x| (*x).map_f64(|x| x.exp()))
-    }
-}
-
-impl<A, D> Broadcast<Array<A, D::Larger>> for Array<A, D>
-where
-    A: Clone,
-    D: Dimension,
-{
-    fn broadcast(&self, rhs: &Array<A, D::Larger>) -> HResult<Array<A, D::Larger>> {
-        match self.clone().broadcast(rhs.dim()).map(|x| x.to_owned()) {
-            Some(result) => Ok(result),
-            None => Err(format_err!(
-                "Cannot broadcast {:?} to {:?}.",
-                Shape::shape(self),
-                Shape::shape(rhs),
-            )),
-        }
+        self.map(|x| x.exp())
     }
 }
 
@@ -305,8 +328,8 @@ where
 {
     type Output = ArrayD<A>;
 
-    fn reshape(&self, new_shape: ShapeVec) -> HResult<ArrayD<A>> {
-        self.clone().into_shape(new_shape).map_err(|err| err.into())
+    fn reshape(self, new_shape: ShapeVec) -> HResult<ArrayD<A>> {
+        self.into_shape(new_shape).map_err(|err| err.into())
     }
 }
 

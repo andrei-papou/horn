@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use num_traits::real::Real;
 
 use crate::backends::{
@@ -32,7 +34,7 @@ pub mod dim2 {
             .tensor_sub(y_hat)?
             .abs()?
             .reduce_sum(LABEL_AXIS)?
-            .mask_lt(A::epsilon())?
+            .mask_cmp(A::epsilon(), &Ordering::Less)?
             .reduce_sum(BATCH_AXIS)?
             .into_scalar()?;
         Ok(correct / total)

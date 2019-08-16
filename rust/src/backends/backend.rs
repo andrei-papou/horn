@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::{Debug, Display};
 
@@ -19,6 +20,10 @@ pub trait TensorAdd<Rhs = Self> {
     type Output;
 
     fn tensor_add(&self, rhs: &Rhs) -> HResult<Self::Output>;
+}
+
+pub trait TensorAddInPlace<Rhs = Self> {
+    fn tensor_add_in_place(&mut self, rhs: &Rhs) -> HResult<()>;
 }
 
 pub trait TensorNeg {
@@ -54,15 +59,21 @@ pub trait TensorDiv<Rhs = Self> {
     fn tensor_div(&self, rhs: &Rhs) -> HResult<Self::Output>;
 }
 
+pub trait TensorDivInPlace<Rhs = Self> {
+    fn tensor_div_in_place(&mut self, rhs: &Rhs) -> HResult<()>;
+}
+
 pub trait MaskCmp: Container
 where
     <Self as Container>::Elem: PartialOrd,
 {
     type Mask;
 
-    fn mask_lt(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
-    fn mask_gt(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
-    fn mask_eq(&self, x: <Self as Container>::Elem) -> HResult<Self::Mask>;
+    fn mask_cmp(&self, x: <Self as Container>::Elem, ord: &Ordering) -> HResult<Self::Mask>;
+}
+
+pub trait ClipByValueInPlace: Container {
+    fn clip_by_value_in_place(&mut self, val: Self::Elem, ord: &Ordering) -> HResult<()>;
 }
 
 pub trait Abs: Container
@@ -87,22 +98,28 @@ pub trait OneHotMax {
 }
 
 pub trait Tensor<Scalar, CommonRepr>:
-    TensorAdd<Self, Output = Self>
-    + TensorSub<Self, Output = Self>
-    + TensorMul<Self, Output = Self>
-    + TensorDiv<Self, Output = Self>
+    TensorAdd<Output = Self>
+    + TensorAddInPlace
+    + TensorSub<Output = Self>
+    + TensorMul<Output = Self>
+    + TensorDiv<Output = Self>
+    + TensorDivInPlace
     + TensorElemInv<Output = Self>
     + TensorNeg<Output = Self>
     + Exp<Output = Self>
     + Container<Elem = Scalar>
     + MaskCmp<Mask = Self>
     + OneHotMax<Output = Self>
+    + ClipByValueInPlace
     + Shape
+    + Abs<Output = Self>
     + FromShapedData<Error = HError>
     + TryInto<CommonRepr, Error = HError>
     + FromFile
     + Debug
+    + Clone
 where
+    Scalar: Real,
     Self: Sized,
     <Self as Container>::Elem: PartialOrd,
 {
@@ -129,20 +146,13 @@ pub trait Container {
     fn same_from_scalar(&self, x: Self::Elem) -> Self;
 }
 
-pub trait Broadcast<To>
-where
-    Self: Sized,
-{
-    fn broadcast(&self, to: &To) -> HResult<To>;
-}
-
 pub trait Reshape
 where
     Self: Sized,
 {
     type Output;
 
-    fn reshape(&self, new_shape: ShapeVec) -> HResult<Self::Output>;
+    fn reshape(self, new_shape: ShapeVec) -> HResult<Self::Output>;
 }
 
 pub trait ReduceSum {
@@ -175,46 +185,44 @@ where
     }
 }
 
-pub trait Transpose {
-    type Output;
-
-    fn transpose(&self) -> HResult<Self::Output>;
-}
-
 pub trait Backend
 where
-    Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd + Real,
+    Self::Scalar: F64CompliantScalar + Zero + One + PartialOrd + Real + Debug + Display,
     Self::CommonRepr: TryInto<Self::Tensor1D, Error = HError>
         + TryInto<Self::Tensor2D, Error = HError>
         + TryInto<Self::Tensor3D, Error = HError>
         + TryInto<Self::Tensor4D, Error = HError>
         + TryInto<Self::TensorXD, Error = HError>
         + FromShapedData<Error = HError>,
+    Self::Tensor0D: IntoScalar<Output = Self::Scalar>,
     Self::Tensor1D: Tensor<Self::Scalar, Self::CommonRepr>
-        + Broadcast<Self::Tensor2D>
-        + Reshape<Output = Self::TensorXD>,
+        + Reshape<Output = Self::TensorXD>
+        + ReduceSum<Output = Self::Tensor0D>
+        + ReduceMean<Output = Self::Tensor0D>,
     Self::Tensor2D: Tensor<Self::Scalar, Self::CommonRepr>
+        + TensorAddInPlace<Self::Tensor1D>
         + Dot<Self::Tensor2D, Output = Self::Tensor2D>
         + Reshape<Output = Self::TensorXD>
         + ReduceSum<Output = Self::Tensor1D>
-        + ReduceMean<Output = Self::Tensor1D>
-        + Transpose<Output = Self::Tensor2D>,
+        + ReduceMean<Output = Self::Tensor1D>,
     Self::Tensor3D: Tensor<Self::Scalar, Self::CommonRepr>,
     Self::Tensor4D: Tensor<Self::Scalar, Self::CommonRepr>
         + convnets::Conv2D<Self::Tensor4D, Self::Tensor1D, Output = Self::Tensor4D>
         + convnets::AvgPool2D<Output = Self::Tensor4D>
         + convnets::MaxPool2D<Output = Self::Tensor4D>,
     Self::TensorXD: Tensor<Self::Scalar, Self::CommonRepr>
-        + Broadcast<Self::TensorXD>
         + Reshape<Output = Self::TensorXD>
         + ReduceSum<Output = Self::TensorXD>
         + ReduceMean<Output = Self::TensorXD>
         + Display
         + Debug,
 {
+    const NAME: &'static str;
+
     type Scalar;
     type CommonRepr;
 
+    type Tensor0D;
     type Tensor1D;
     type Tensor2D;
     type Tensor3D;

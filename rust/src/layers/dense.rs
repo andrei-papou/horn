@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
 
 use super::traits::{Apply, FromJson};
-use crate::backends::backend::{Backend, Broadcast, Dot, TensorAdd};
+use crate::backends::backend::{Backend, Dot, TensorAddInPlace};
 use crate::common::types::{HError, HResult};
 use crate::common::Name;
 use crate::model::binary_format::WeightsMap;
@@ -34,15 +34,11 @@ impl<B: Backend> Name for DenseLayer<B> {
 impl<B: Backend> Apply<B> for DenseLayer<B> {
     fn apply(&self, input: B::CommonRepr) -> HResult<B::CommonRepr> {
         let input = <B::CommonRepr as TryInto<B::Tensor2D>>::try_into(input)?;
-        let z = input.dot(&self.weights)?;
-        let result = match &self.bias {
-            Some(bias) => {
-                let bc_bias = bias.broadcast(&z)?;
-                z.tensor_add(&bc_bias)?
-            }
-            None => z,
-        };
-        let result: B::CommonRepr = result.try_into()?;
+        let mut z = input.dot(&self.weights)?;
+        if let Some(bias) = &self.bias {
+            z.tensor_add_in_place(bias)?;
+        }
+        let result: B::CommonRepr = z.try_into()?;
         Ok(result)
     }
 }

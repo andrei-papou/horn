@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
@@ -6,8 +7,8 @@ use crate::serde::{Deserialize, Serialize};
 use crate::serde_json::{from_value, Value};
 
 use crate::backends::backend::{
-    Backend, Broadcast, Container, Exp, MaskCmp, ReduceSum, Reshape, Shape, ShapeVec, TensorAdd,
-    TensorDiv, TensorMul, TensorNeg, TensorSub,
+    Backend, ClipByValueInPlace, Container, Exp, ReduceSum, Reshape, Shape, ShapeVec, TensorAdd,
+    TensorDiv, TensorDivInPlace, TensorNeg, TensorSub,
 };
 use crate::common::types::{HError, HResult};
 use crate::common::Name;
@@ -105,9 +106,9 @@ impl<B: Backend> Name for Relu<B> {
 
 impl<B: Backend> Apply<B> for Relu<B> {
     fn apply(&self, x: B::CommonRepr) -> HResult<B::CommonRepr> {
-        let x: B::TensorXD = x.try_into()?;
-        x.tensor_mul(&x.mask_gt(<B::TensorXD as Container>::Elem::zero())?)?
-            .try_into()
+        let mut x: B::TensorXD = x.try_into()?;
+        x.clip_by_value_in_place(<B::TensorXD as Container>::Elem::zero(), &Ordering::Less)?;
+        x.try_into()
     }
 }
 
@@ -150,9 +151,9 @@ impl<B: Backend> Apply<B> for Softmax<B> {
         let mut shape: ShapeVec = <B::TensorXD as Shape>::shape(&x);
         let axis = self.axis.unwrap_or(shape.len() - 1usize);
         shape[axis] = 1;
-        let x = x.exp();
-        x.tensor_div(&x.reduce_sum(axis)?.reshape(shape)?.broadcast(&x)?)?
-            .try_into()
+        let mut x = x.exp();
+        x.tensor_div_in_place(&x.reduce_sum(axis)?.reshape(shape)?)?;
+        x.try_into()
     }
 }
 

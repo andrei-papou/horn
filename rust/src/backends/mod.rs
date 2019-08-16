@@ -4,7 +4,6 @@ pub(crate) mod ndarray;
 
 pub use self::ndarray::{NdArrayBackend, NdArrayCommonRepr};
 pub(crate) use crate::backends::backend::{
-    Abs, Backend, Container, FromShapedData, IntoScalar, MaskCmp, ReduceSum, Shape, TensorNeg,
-    TensorSub,
+    Abs, FromShapedData, IntoScalar, MaskCmp, ReduceSum, Shape, TensorNeg, TensorSub,
 };
-pub use crate::backends::backend::{FromFile, OneHotMax};
+pub use crate::backends::backend::{Backend, Container, FromFile, OneHotMax, Tensor};

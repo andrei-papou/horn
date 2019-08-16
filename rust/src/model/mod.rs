@@ -1,6 +1,5 @@
 pub(crate) mod binary_format;
 pub mod evaluation;
-pub mod test_utils;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str as json_from_str, Value};
