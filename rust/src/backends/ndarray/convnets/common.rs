@@ -1,5 +1,6 @@
 use ndarray::{
-    stack, Array, Array3, ArrayBase, ArrayView, Axis, Data, Dimension, Ix3, RemoveAxis, ShapeError,
+    stack, Array, Array3, Array4, ArrayBase, ArrayView, Axis, Data, Dimension, Ix3, Ix4,
+    RemoveAxis, ShapeError,
 };
 
 use crate::backends::convnets::DataFormat;
@@ -27,6 +28,33 @@ where
         let idx = match data_format {
             DataFormat::ChannelsFirst => (idx.0, idx.1 + pads.0, idx.2 + pads.2),
             DataFormat::ChannelsLast => (idx.0 + pads.0, idx.1 + pads.2, idx.2),
+        };
+        new_arr[idx] = el.clone();
+    });
+    new_arr
+}
+
+pub(super) fn pad_array4<A, S>(
+    arr: &ArrayBase<S, Ix4>,
+    pads: &Pad2D,
+    data_format: &DataFormat,
+    elem: A,
+) -> Array4<A>
+where
+    A: Clone,
+    S: Data<Elem = A>,
+{
+    let shape = arr.shape();
+    let (h_total, w_total) = (pads.0 + pads.1, pads.2 + pads.3);
+    let new_shape = match data_format {
+        DataFormat::ChannelsFirst => (shape[0], shape[1], shape[2] + h_total, shape[3] + w_total),
+        DataFormat::ChannelsLast => (shape[0], shape[1] + h_total, shape[2] + w_total, shape[3]),
+    };
+    let mut new_arr = Array4::<A>::from_elem(new_shape, elem);
+    arr.view().indexed_iter().for_each(|(idx, el)| {
+        let idx = match data_format {
+            DataFormat::ChannelsFirst => (idx.0, idx.1, idx.2 + pads.0, idx.3 + pads.2),
+            DataFormat::ChannelsLast => (idx.0, idx.1 + pads.0, idx.2 + pads.2, idx.3),
         };
         new_arr[idx] = el.clone();
     });
