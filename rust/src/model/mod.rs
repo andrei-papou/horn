@@ -8,8 +8,8 @@ use crate::backends::Backend;
 use crate::common::traits::Name;
 use crate::common::types::HResult;
 use crate::layers::{
-    Apply, AvgPool2DLayer, Conv2DLayer, DenseLayer, FromJson, MaxPool2DLayer, Relu, Sigmoid,
-    Softmax, Tanh,
+    Apply, AvgPool2DLayer, Conv2DLayer, DenseLayer, FlattenLayer, FromJson, MaxPool2DLayer, Relu,
+    Sigmoid, Softmax, Tanh,
 };
 
 use binary_format::decode_model_from_file;
@@ -57,6 +57,9 @@ impl<'a, B: Backend + 'a> Model<'a, B> {
                 }
                 DenseLayer::<B>::TYPE => {
                     Box::new(DenseLayer::<B>::from_json(&lo, &mut weights_map)?)
+                }
+                FlattenLayer::<B>::TYPE => {
+                    Box::new(FlattenLayer::<B>::from_json(&lo, &mut weights_map)?)
                 }
                 Sigmoid::<B>::TYPE => Box::new(Sigmoid::<B>::from_json(&lo, &mut weights_map)?),
                 Softmax::<B>::TYPE => Box::new(Softmax::<B>::from_json(&lo, &mut weights_map)?),

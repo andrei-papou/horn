@@ -1,6 +1,9 @@
 from argparse import ArgumentParser
 
 from commands import commands
+from common import shut_the_logging_up
+
+shut_the_logging_up()
 
 
 def main():
