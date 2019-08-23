@@ -3,7 +3,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 use std::iter::Sum;
 use std::marker::PhantomData;
-use std::ops::{Add, Div, Mul, Neg};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use ndarray::{
     Array, Array0, Array1, Array2, Array3, Array4, ArrayD, Axis, Dimension, LinalgScalar,
@@ -15,12 +15,14 @@ use crate::backends::backend::{
     Abs, Backend, ClipByValueInPlace, Container, Dot, Exp, FromFile, FromShapedData, IntoScalar,
     MaskCmp, OneHotMax, ReduceMean, ReduceSum, Reshape, Shape, ShapeVec, Tensor, TensorAdd,
     TensorAddInPlace, TensorDiv, TensorDivInPlace, TensorElemInv, TensorMul, TensorNeg, TensorSub,
+    Flatten,
 };
 use crate::backends::convnets;
 use crate::common::traits::F64CompliantScalar;
 use crate::common::types::{HError, HResult};
 
-use super::convnets::{avg_pool2d, conv2d, max_pool2d};
+use super::convnets::{avg_pool2d, conv2d_im2col, max_pool2d};
+use failure::_core::ops::AddAssign;
 
 pub struct NdArrayBackend<A> {
     _marker: PhantomData<A>,
@@ -54,10 +56,25 @@ where
     }
 }
 
+impl<A> Flatten for NdArrayCommonRepr<A> {
+    type Output = NdArrayCommonRepr<A>;
+
+    fn flatten(self) -> HResult<NdArrayCommonRepr<A>> {
+        if self.shape.len() < 2 {
+            return Ok(self);
+        }
+        let mut shape_iter = self.shape.into_iter();
+        let batch_dim = shape_iter.next().unwrap();
+        let flattened_dim = shape_iter.fold(1usize, |acc, x| acc * x);
+        Ok(NdArrayCommonRepr::<A>::new(self.data, vec![batch_dim, flattened_dim]))
+    }
+}
+
 impl<A> Backend for NdArrayBackend<A>
 where
     A: LinalgScalar
         + F64CompliantScalar
+        + AddAssign<A>
         + Neg<Output = A>
         + PartialOrd
         + Display
@@ -417,7 +434,7 @@ where
 
 impl<A> convnets::Conv2D<Array4<A>, Array1<A>> for Array4<A>
 where
-    A: Debug + Clone + Copy + Add<Output = A> + Mul<A, Output = A> + Zero,
+    A: Debug + Clone + Copy + Add<Output = A> + AddAssign<A> + Mul<A, Output = A> + Zero + One + Div<A, Output = A> + Sub<A, Output = A> + 'static,
 {
     type Output = Array4<A>;
 
@@ -429,7 +446,7 @@ where
         padding: convnets::Padding,
         data_format: convnets::DataFormat,
     ) -> HResult<Array4<A>> {
-        Ok(conv2d(
+        Ok(conv2d_im2col(
             self,
             kernels,
             biases,

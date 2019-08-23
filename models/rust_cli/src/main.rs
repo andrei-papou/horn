@@ -7,7 +7,7 @@ mod models;
 use horn::NdArrayBackend;
 
 use commands::{command_handle, run_cli, Command, TestCorrectnessCommand, TestPerformanceCommand};
-use models::{IrisModel, MnistMLPModel};
+use models::{IrisModel, MnistCNNModel, MnistMLPModel};
 
 fn main() {
     if let Err(error) = run_cli(
@@ -18,8 +18,10 @@ fn main() {
         vec![
             command_handle::<TestCorrectnessCommand, IrisModel<NdArrayBackend<f64>>>,
             command_handle::<TestCorrectnessCommand, MnistMLPModel<NdArrayBackend<f64>>>,
+            command_handle::<TestCorrectnessCommand, MnistCNNModel<NdArrayBackend<f64>>>,
             command_handle::<TestPerformanceCommand, IrisModel<NdArrayBackend<f64>>>,
             command_handle::<TestPerformanceCommand, MnistMLPModel<NdArrayBackend<f64>>>,
+            command_handle::<TestPerformanceCommand, MnistCNNModel<NdArrayBackend<f64>>>,
         ],
     ) {
         println!("Error: {}", error.as_fail());

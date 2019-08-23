@@ -76,7 +76,7 @@ where
                     .step_by(strides.1)
                     .enumerate()
                 {
-                    let window = input
+                    input
                         .slice_axis(
                             Axis(h_axis),
                             Slice::new(hr as isize, Some((hr + pool_window.0) as isize), 1),
@@ -85,9 +85,6 @@ where
                             Axis(w_axis),
                             Slice::new(wr as isize, Some((wr + pool_window.1) as isize), 1),
                         )
-                        .into_owned();
-
-                    window
                         .axis_iter(Axis(c_axis))
                         .enumerate()
                         .for_each(|(ci, window)| {

@@ -59,3 +59,19 @@ impl<B: Backend> TestModel for MnistMLPModel<B> {
         model_evaluation::dim2::accuracy(ys, ys_hat)
     }
 }
+
+pub struct MnistCNNModel<B: Backend>(PhantomData<B>)
+    where
+        B: Backend;
+
+impl<B: Backend> TestModel for MnistCNNModel<B> {
+    const NAME: &'static str = "mnist_cnn";
+
+    type Backend = B;
+    type X = B::Tensor4D;
+    type Y = B::Tensor2D;
+
+    fn get_accuracy(ys: &Self::Y, ys_hat: &Self::Y) -> HResult<<Self::Y as Container>::Elem> {
+        model_evaluation::dim2::accuracy(ys, ys_hat)
+    }
+}

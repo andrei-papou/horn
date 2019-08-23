@@ -176,6 +176,15 @@ where
     fn from_shaped_data(data: Vec<f64>, shape: ShapeVec) -> Result<Self, Self::Error>;
 }
 
+pub trait Flatten
+where
+    Self: Sized,
+{
+    type Output;
+
+    fn flatten(self) -> HResult<Self::Output>;
+}
+
 pub trait FromFile
 where
     Self: Sized + FromShapedData<Error = HError>,
@@ -193,7 +202,8 @@ where
         + TryInto<Self::Tensor3D, Error = HError>
         + TryInto<Self::Tensor4D, Error = HError>
         + TryInto<Self::TensorXD, Error = HError>
-        + FromShapedData<Error = HError>,
+        + FromShapedData<Error = HError>
+        + Flatten<Output = Self::CommonRepr>,
     Self::Tensor0D: IntoScalar<Output = Self::Scalar>,
     Self::Tensor1D: Tensor<Self::Scalar, Self::CommonRepr>
         + Reshape<Output = Self::TensorXD>
