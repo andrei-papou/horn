@@ -8,8 +8,8 @@ use crate::backends::Backend;
 use crate::common::traits::Name;
 use crate::common::types::HResult;
 use crate::layers::{
-    Apply, AvgPool2DLayer, Conv2DLayer, DenseLayer, FromJson, MaxPool2DLayer, Relu, Sigmoid,
-    Softmax, Tanh, FlattenLayer
+    Apply, AvgPool2DLayer, Conv2DLayer, DenseLayer, FlattenLayer, FromJson, MaxPool2DLayer, Relu,
+    Sigmoid, Softmax, Tanh,
 };
 
 use binary_format::decode_model_from_file;

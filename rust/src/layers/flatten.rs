@@ -18,7 +18,7 @@ impl<B: Backend> FlattenLayer<B> {
     fn new(name: String) -> FlattenLayer<B> {
         FlattenLayer {
             name,
-            _marker: PhantomData::<B>
+            _marker: PhantomData::<B>,
         }
     }
 }
