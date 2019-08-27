@@ -121,14 +121,19 @@ impl Command for TestPerformanceCommand {
             .value_of("num-iterations")
             .map(|x| x.parse::<usize>())
             .unwrap_or(Ok(Self::DEFAULT_NUM_ITERATIONS))?;
+        let print_iteration_time = matches.is_present("iteration-time");
 
         let mut cumulative_time: u128 = 0;
-        for _ in 0..num_iterations {
+        for ni in 0..num_iterations {
             let data =
                 <M::X as TryInto<<M::Backend as Backend>::CommonRepr>>::try_into(xs.clone())?;
             let timer = Instant::now();
             model.run(data)?;
-            cumulative_time += timer.elapsed().as_micros();
+            let iteration_time = timer.elapsed().as_micros();
+            if print_iteration_time {
+                println!("Iteration {} time: {}.", ni, iteration_time);
+            }
+            cumulative_time += iteration_time;
         }
 
         println!(
@@ -151,6 +156,11 @@ impl Command for TestPerformanceCommand {
                     .long("num-iterations")
                     .takes_value(true)
                     .help("Number of accuracy calculation iterations."),
+            )
+            .arg(
+                Arg::with_name("iteration-time")
+                    .long("iteration-time")
+                    .help("Print iteration time."),
             )
     }
 }

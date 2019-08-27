@@ -61,8 +61,8 @@ impl<B: Backend> TestModel for MnistMLPModel<B> {
 }
 
 pub struct MnistCNNModel<B: Backend>(PhantomData<B>)
-    where
-        B: Backend;
+where
+    B: Backend;
 
 impl<B: Backend> TestModel for MnistCNNModel<B> {
     const NAME: &'static str = "mnist_cnn";
