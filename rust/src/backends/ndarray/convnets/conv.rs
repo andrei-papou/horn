@@ -1,8 +1,10 @@
 use std::fmt::Debug;
+use std::mem;
 use std::ops::{Add, AddAssign, Mul};
 
 use ndarray::{linalg::Dot, Array1, Array2, Array3, Array4, ArrayView3, Axis, ShapeError, Slice};
 use num_traits::Zero;
+use rayon::prelude::*;
 
 use super::common::{build_indexer_2d, join_first_axis, pad_array3, pad_array4};
 use crate::backends::convnets::{
@@ -107,7 +109,7 @@ pub(crate) fn conv2d_im2col<A>(
     data_format: DataFormat,
 ) -> Result<Array4<A>, ShapeError>
 where
-    A: Debug + Clone + Copy + Add<Output = A> + AddAssign + Mul<A, Output = A> + Zero,
+    A: Debug + Clone + Copy + Add<Output = A> + AddAssign + Mul<A, Output = A> + Zero + Send + Sync + 'static,
     Array2<A>: Dot<Array2<A>, Output = Array2<A>>,
 {
     let input_batch = match &data_format {
@@ -146,22 +148,20 @@ where
         A::zero(),
     );
     debug_assert!(image_matrix.is_standard_layout());
-    // Some black magic to parallelize the im2col matrix costruction
-    let mut owned_batch_tiles: Vec<Array2<A>> = Vec::new();
+    // Some black magic to parallelize the im2col matrix construction
+    let mut unsafe_batch_tiles: Vec<Vec<A>> = Vec::with_capacity(batch_size);
     unsafe {
         let mut ptr: *mut A = image_matrix.as_mut_ptr();
         for _ in 0..batch_size {
             let tile_vec_len = res_h * res_w * ker_h * ker_w * ker_in;
-            let tile_vec = Vec::<A>::from_raw_parts(ptr, tile_vec_len, tile_vec_len);
-            let tile = Array2::<A>::from_shape_vec_unchecked((res_h * res_w, ker_h * ker_w * ker_in), tile_vec);
-            owned_batch_tiles.push(tile);
+            let tile = Vec::<A>::from_raw_parts(ptr, tile_vec_len, tile_vec_len);
+            unsafe_batch_tiles.push(tile);
             ptr = ptr.offset(tile_vec_len as isize);
         }
     }
 
-    let mut image_matrix_iter_mut = image_matrix.iter_mut();
-
-    for bi in 0..batch_size {
+    unsafe_batch_tiles.into_par_iter().enumerate().for_each(|(bi, mut tile)| {
+        let mut tile_iter_mut = tile.iter_mut();
         for hr in (0..(inp_h - ker_h + 1)).step_by(strides.0) {
             for wr in (0..(inp_w - ker_w + 1)).step_by(strides.1) {
                 input
@@ -176,25 +176,41 @@ where
                     )
                     .iter()
                     .for_each(|x| {
-                        image_matrix_iter_mut.next().map(|cell| {
+                        tile_iter_mut.next().map(|cell| {
                             *cell = x.clone();
                         });
                     });
             }
         }
-    }
+        // Do not drop the elements of the tile since it is only a writable view over the image
+        // matrix elements.
+        mem::forget(tile);
+    });
 
     let kernel_matrix = kernels
         .clone()
         .into_shape((ker_h * ker_w * ker_in, ker_out))?;
     let mut result: Array2<A> = image_matrix.dot(&kernel_matrix);
+
+    debug_assert!(result.is_standard_layout());
+    let mut unsafe_batch_tiles: Vec<Vec<A>> = Vec::with_capacity(batch_size);
+    unsafe {
+        let mut ptr: *mut A = result.as_mut_ptr();
+        for _ in 0..batch_size {
+            let tile_vec_len = res_h * res_w * ker_out;
+            let tile = Vec::<A>::from_raw_parts(ptr, tile_vec_len, tile_vec_len);
+            unsafe_batch_tiles.push(tile);
+            ptr = ptr.offset(tile_vec_len as isize);
+        }
+    }
+
     if let Some(bias) = bias {
-        result
-            .axis_iter_mut(Axis(1))
-            .zip(bias.iter())
-            .for_each(|(mut ker_output, b)| {
-                ker_output.iter_mut().for_each(|x| *x += *b);
+        unsafe_batch_tiles.into_par_iter().for_each(|mut tile: Vec<A>| {
+            tile.iter_mut().enumerate().for_each(|(i, el)| {
+                *el += bias[i % ker_out];
             });
+            mem::forget(tile);
+        });
     }
 
     let result: Array4<A> = result.into_shape((batch_size, res_h, res_w, ker_out))?;

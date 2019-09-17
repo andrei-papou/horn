@@ -89,16 +89,24 @@ class TestPerformanceCommand(Command):
             type=int,
             help='Number of performance measurement iterations'
         )
+        parser.add_argument(
+            '--iteration-time',
+            action='store_true',
+            help='Print iteration time'
+        )
 
     @classmethod
     def execute(cls, args: Args):
         model_spec = _extract_model_spec(args)
         model = get_model(args.model, model_spec.get_model)
         cumulative_time = 0.0
-        for _ in range(args.num_iterations):
+        for i in range(args.num_iterations):
             start = time()
             model.predict(x=model_spec.xs, verbose=0)
-            cumulative_time += time() - start
+            iteration_time = time() - start
+            if args.iteration_time:
+                print(f'Iteration {i} time: {iteration_time * 1e6}')
+            cumulative_time += iteration_time
         print(f'Keras performance for model `{model_spec.name}` : {cumulative_time * 1e6}')
 
 

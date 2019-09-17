@@ -82,7 +82,10 @@ where
         + Display
         + Debug
         + Real
-        + Sum<A>,
+        + Sum<A>
+        + Send
+        + Sync
+        + 'static,
 {
     const NAME: &'static str = "ndarray";
 
@@ -446,6 +449,8 @@ where
         + One
         + Div<A, Output = A>
         + Sub<A, Output = A>
+        + Send
+        + Sync
         + 'static,
 {
     type Output = Array4<A>;
