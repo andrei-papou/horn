@@ -40,8 +40,8 @@ y_test = keras.utils.to_categorical(y_test, num_classes)
 
 class MnistCnnModel(ModelSpec):
     name: str = 'mnist_cnn'
-    xs: ndarray = x_test[:500, :, :, :]
-    ys: ndarray = y_test[:500, :]
+    xs: ndarray = x_test[:10, :, :, :]
+    ys: ndarray = y_test[:10, :]
 
     @classmethod
     def get_model(cls) -> Model:

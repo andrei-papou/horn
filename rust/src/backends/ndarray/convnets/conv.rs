@@ -145,6 +145,20 @@ where
         (batch_size * res_h * res_w, ker_h * ker_w * ker_in),
         A::zero(),
     );
+    debug_assert!(image_matrix.is_standard_layout());
+    // Some black magic to parallelize the im2col matrix costruction
+    let mut owned_batch_tiles: Vec<Array2<A>> = Vec::new();
+    unsafe {
+        let mut ptr: *mut A = image_matrix.as_mut_ptr();
+        for _ in 0..batch_size {
+            let tile_vec_len = res_h * res_w * ker_h * ker_w * ker_in;
+            let tile_vec = Vec::<A>::from_raw_parts(ptr, tile_vec_len, tile_vec_len);
+            let tile = Array2::<A>::from_shape_vec_unchecked((res_h * res_w, ker_h * ker_w * ker_in), tile_vec);
+            owned_batch_tiles.push(tile);
+            ptr = ptr.offset(tile_vec_len as isize);
+        }
+    }
+
     let mut image_matrix_iter_mut = image_matrix.iter_mut();
 
     for bi in 0..batch_size {
@@ -177,9 +191,9 @@ where
     if let Some(bias) = bias {
         result
             .axis_iter_mut(Axis(1))
-            .enumerate()
-            .for_each(|(ker_idx, mut ker_output)| {
-                ker_output.iter_mut().for_each(|x| *x += bias[ker_idx]);
+            .zip(bias.iter())
+            .for_each(|(mut ker_output, b)| {
+                ker_output.iter_mut().for_each(|x| *x += *b);
             });
     }
 
