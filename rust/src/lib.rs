@@ -1,7 +1,10 @@
+#![feature(allocator_api)]
+
 #[macro_use]
 extern crate failure;
 extern crate openblas_src;
 
+mod allocators;
 mod backends;
 mod common;
 mod layers;
