@@ -1,3 +1,4 @@
+#[derive(Debug, Display)]
 pub(crate) enum MemOpError {
     OutOfBoundsForward,
     OutOfBoundsBackward,
@@ -7,6 +8,7 @@ pub(crate) enum MemOpError {
 }
 
 pub(crate) enum BlockDeallocResult {
-    Dealloc,
+    DeallocOk,
+    DeallocErr(MemOpError),
     NotFound,
 }

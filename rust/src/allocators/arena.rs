@@ -1,5 +1,4 @@
-use std::alloc::{Alloc, Layout};
-use std::marker::PhantomData;
+use std::alloc::Layout;
 use std::mem;
 use std::ptr::{self, NonNull};
 use containers::collections::{Vec as FixedAllocVec};
@@ -28,12 +27,12 @@ impl BlockDesc {
 
 #[derive(Clone)]
 struct BlockIterator<'a> {
-    region: &'a MemRegion,
+    region: &'a Arena,
     offset: isize,
 }
 
 impl<'a> BlockIterator<'a> {
-    fn new<'b: 'a>(region: &'b MemRegion) -> BlockIterator<'a> {
+    fn new<'b: 'a>(region: &'b Arena) -> BlockIterator<'a> {
         BlockIterator { region, offset: 0 }
     }
 
@@ -73,14 +72,19 @@ impl Iterator for BlockIterator {
     }
 }
 
-pub(crate) struct MemRegion {
-    ptr: BoundedPtr,
-    _marker: PhantomData<Vec<u8>>,
+fn get_layout_size(ptr: BoundedPtr, layout: &Layout) -> usize {
+    let aligned_offset = ptr.as_ptr().as_ptr().align_offset(layout.align());
+    aligned_offset + layout.size()
 }
 
-impl MemRegion {
-    pub(crate) fn init(ptr: BoundedPtr) -> Result<MemRegion, MemOpError> {
-        let mut me = MemRegion { ptr, _marker: PhantomData };
+pub(crate) struct Arena {
+    real_ptr: BoundedPtr,
+    ptr: BoundedPtr,
+}
+
+impl Arena {
+    pub(crate) fn init(ptr: BoundedPtr) -> Result<Arena, MemOpError> {
+        let mut me = Arena { real_ptr: ptr, ptr: ptr.offset(1)? };
         me.create_block(0, me.as_ptr().fwd_size(), true)?;
         Ok(me)
     }
@@ -101,6 +105,10 @@ impl MemRegion {
         &self.ptr
     }
 
+    pub(crate) fn as_real_ptr(&self) -> &BoundedPtr {
+        &self.real_ptr
+    }
+
     fn contains_raw(&self, ptr: NonNull<u8>) -> bool {
         self.ptr.contains_raw(ptr)
     }
@@ -109,15 +117,25 @@ impl MemRegion {
         unsafe { BlockIterator::new(self) }
     }
 
-    pub(crate) fn try_allocate(&mut self, size: usize) -> Option<NonNull<u8>> {
+    pub(crate) fn try_allocate(&mut self, layout: &Layout) -> Option<NonNull<u8>> {
         let mut block_iter = self.block_iter();
-        let block = block_iter.find(|b| b.is_free() && b.size_available() >= size)?;
+        let (block, size, align_offset) = block_iter
+            .filter(|b| b.is_free)
+            .filter_map(|b| match self.ptr.offset(b.offset + BlockDesc::META_SIZE as isize) {
+                Ok(b_ptr) => {
+                    let aligned_offset = b_ptr.as_ptr().as_ptr().align_offset(layout.align());
+                    let aligned_size = aligned_offset + layout.size();
+                    Some((b, aligned_size, aligned_offset))
+                },
+                Err(_) => None,
+            })
+            .find(|(b, size, _offset)| b.size_available() >= *size)?;
         let allocated_size = size + 2 * BlockDesc::META_SIZE;
         Some(if block.size - allocated_size < BlockDesc::MIN_SIZE {
             let block_ptr = self.ptr.offset(
                 self.create_block(block.offset, block.size, false)?.offset
             )?;
-            block_ptr.offset(BlockDesc::META_SIZE as isize)?.as_ptr()
+            block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize)?.as_ptr()
         } else {
             let mut free_block_size = block.size - allocated_size;
             let free_block_offset = block.offset + allocated_size as isize;
@@ -130,17 +148,23 @@ impl MemRegion {
                 }
             }
             self.create_block(free_block_offset, free_block_size, true)?;
-            block_ptr.offset(BlockDesc::META_SIZE as isize)?.as_ptr()
+            block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize)?.as_ptr()
         })
     }
 
-    pub(crate) fn try_deallocate(&mut self, ptr: NonNull<u8>) -> Result<BlockDeallocResult, MemOpError> {
+    pub(crate) fn try_deallocate(&mut self, ptr: NonNull<u8>) -> BlockDeallocResult {
         let meta_size = BlockDesc::META_SIZE as isize;
         Ok(if self.contains_raw(ptr) {
             let mut block_iter = self.block_iter();
             let block = block_iter.find(|block| {
-                let block_start_ptr = self.ptr.offset(block.offset)?;
-                let block_end_ptr = self.ptr.offset(block.size as isize)?;
+                let block_start_ptr = match self.ptr.offset(block.offset) {
+                    Ok(ptr) => ptr,
+                    Err(_) => return false,
+                };
+                let block_end_ptr = match self.ptr.offset(block.size as isize) {
+                    Ok(ptr) => ptr,
+                    Err(_) => return false,
+                };
                 block_start_ptr.as_ptr() <= ptr && ptr <= block_end_ptr.as_ptr()
             })?;
 
@@ -165,9 +189,11 @@ impl MemRegion {
                     new_free_block_size += next_block.size;
                 }
             }
-            self.create_block(new_free_block_offset, new_free_block_size, true)?;
+            if let Err(err) = self.create_block(new_free_block_offset, new_free_block_size, true) {
+                return BlockDeallocResult::DeallocErr(err);
+            };
 
-            BlockDeallocResult::Dealloc
+            BlockDeallocResult::DeallocOk
         } else {
             BlockDeallocResult::NotFound
         })
