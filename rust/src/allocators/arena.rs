@@ -1,7 +1,7 @@
 use std::alloc::Layout;
 use std::mem;
 use std::ptr::{self, NonNull};
-use containers::collections::{Vec as FixedAllocVec};
+use super::collections::{AVec as FixedAllocVec};
 use super::enums::{BlockDeallocResult, MemOpError};
 use super::bounded_ptr::BoundedPtr;
 
@@ -22,6 +22,18 @@ impl BlockDesc {
 
     fn size_available(&self) -> usize {
         self.size - 2 * Self::META_SIZE
+    }
+
+    fn contains_ptr(&self, base_ptr: &BoundedPtr, ptr: NonNull<u8>) -> bool {
+        let block_start_ptr = match base_ptr.offset(self.offset) {
+            Ok(ptr) => ptr,
+            Err(_) => return false,
+        };
+        let block_end_ptr = match base_ptr.offset(self.size as isize) {
+            Ok(ptr) => ptr,
+            Err(_) => return false,
+        };
+        block_start_ptr.as_ptr() <= ptr && ptr <= block_end_ptr.as_ptr()
     }
 }
 
@@ -59,9 +71,23 @@ impl<'a> BlockIterator<'a> {
             Err(_) => None,
         }
     }
+
+    fn skip_to_containing_ptr(mut self, ptr: NonNull<u8>) -> Self {
+        while let Some(block) = self.next() {
+            if block.contains_ptr(self.region.as_ptr(), ptr) {
+                break;
+            }
+        };
+        self
+    }
+
+    fn find_containing_ptr(&mut self, ptr: NonNull<u8>) -> Option<BlockDesc> {
+        let base_ptr = self.region.as_ptr().clone();
+        self.find(|block| block.contains_ptr(&base_ptr, ptr))
+    }
 }
 
-impl Iterator for BlockIterator {
+impl<'a> Iterator for BlockIterator<'a> {
     type Item = BlockDesc;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -77,6 +103,7 @@ fn get_layout_size(ptr: BoundedPtr, layout: &Layout) -> usize {
     aligned_offset + layout.size()
 }
 
+#[derive(Debug)]
 pub(crate) struct Arena {
     real_ptr: BoundedPtr,
     ptr: BoundedPtr,
@@ -118,77 +145,86 @@ impl Arena {
     }
 
     pub(crate) fn try_allocate(&mut self, layout: &Layout) -> Option<NonNull<u8>> {
-        let mut block_iter = self.block_iter();
-        let (block, size, align_offset) = block_iter
-            .filter(|b| b.is_free)
-            .filter_map(|b| match self.ptr.offset(b.offset + BlockDesc::META_SIZE as isize) {
-                Ok(b_ptr) => {
-                    let aligned_offset = b_ptr.as_ptr().as_ptr().align_offset(layout.align());
-                    let aligned_size = aligned_offset + layout.size();
-                    Some((b, aligned_size, aligned_offset))
-                },
-                Err(_) => None,
-            })
-            .find(|(b, size, _offset)| b.size_available() >= *size)?;
+        let (block, size, align_offset) = {
+            let mut block_iter = self.block_iter();
+            block_iter
+                .filter(|b| b.is_free)
+                .filter_map(|b| match self.ptr.offset(b.offset + BlockDesc::META_SIZE as isize) {
+                    Ok(b_ptr) => {
+                        let aligned_offset = b_ptr.as_ptr().as_ptr().align_offset(layout.align());
+                        let aligned_size = aligned_offset + layout.size();
+                        Some((b, aligned_size, aligned_offset))
+                    },
+                    Err(_) => None,
+                })
+                .find(|(b, size, _offset)| b.size_available() >= *size)?
+        };
         let allocated_size = size + 2 * BlockDesc::META_SIZE;
-        Some(if block.size - allocated_size < BlockDesc::MIN_SIZE {
-            let block_ptr = self.ptr.offset(
-                self.create_block(block.offset, block.size, false)?.offset
-            )?;
-            block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize)?.as_ptr()
+        if block.size - allocated_size < BlockDesc::MIN_SIZE {
+            let block_ptr = match self.create_block(block.offset, block.size, false).and_then(|b| self.ptr.offset(b.offset)) {
+                Ok(ptr) => ptr,
+                Err(_) => return None,
+            };
+            match block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize).map(|b| b.as_ptr()) {
+                Ok(ptr) => Some(ptr),
+                Err(_) => None,
+            }
         } else {
             let mut free_block_size = block.size - allocated_size;
             let free_block_offset = block.offset + allocated_size as isize;
-            let block_ptr = self.ptr.offset(
-                self.create_block(block.offset, allocated_size, false)?.offset
-            )?;
-            if let Some(next_block) = block_iter.next() {
+            let block_ptr = match self.create_block(block.offset, allocated_size, false).and_then(|b| self.ptr.offset(b.offset)) {
+                Ok(ptr) => ptr,
+                Err(_) => return None,
+            };
+            if let Some(next_block) = self.block_iter().skip_to_containing_ptr(block_ptr.as_ptr()).next() {
                 if next_block.is_free {
                     free_block_size += next_block.size;
                 }
             }
-            self.create_block(free_block_offset, free_block_size, true)?;
-            block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize)?.as_ptr()
-        })
+            if let Err(_) = self.create_block(free_block_offset, free_block_size, true) {
+                return None;
+            };
+            match block_ptr.offset((BlockDesc::META_SIZE + align_offset) as isize).map(|b| b.as_ptr()) {
+                Ok(ptr) => Some(ptr),
+                Err(_) => None,
+            }
+        }
     }
 
     pub(crate) fn try_deallocate(&mut self, ptr: NonNull<u8>) -> BlockDeallocResult {
         let meta_size = BlockDesc::META_SIZE as isize;
-        Ok(if self.contains_raw(ptr) {
-            let mut block_iter = self.block_iter();
-            let block = block_iter.find(|block| {
-                let block_start_ptr = match self.ptr.offset(block.offset) {
-                    Ok(ptr) => ptr,
-                    Err(_) => return false,
+        if self.contains_raw(ptr) {
+            let (new_free_block_offset, new_free_block_size) = {
+                let mut block_iter = self.block_iter();
+                let block = match block_iter.find_containing_ptr(ptr) {
+                    Some(b) => b,
+                    None => return BlockDeallocResult::NotFound,
                 };
-                let block_end_ptr = match self.ptr.offset(block.size as isize) {
-                    Ok(ptr) => ptr,
-                    Err(_) => return false,
+
+                let mut new_free_block_offset = block.offset;
+                let mut new_free_block_size = block.size;
+
+                let mut block_iter_bwd = {
+                    let mut iter = block_iter.clone();
+                    let _ = iter.prev();
+                    iter
                 };
-                block_start_ptr.as_ptr() <= ptr && ptr <= block_end_ptr.as_ptr()
-            })?;
+                if let Some(prev_block) = block_iter_bwd.prev() {
+                    if prev_block.is_free {
+                        new_free_block_offset = prev_block.offset;
+                        new_free_block_size += prev_block.size;
+                    }
+                }
 
-            let mut new_free_block_offset = block.offset;
-            let mut new_free_block_size = block.size;
+                let mut block_iter_fwd = block_iter.clone();
+                if let Some(next_block) = block_iter.next() {
+                    if next_block.is_free {
+                        new_free_block_size += next_block.size;
+                    }
+                };
 
-            let mut block_iter_bwd = {
-                let mut iter = block_iter.clone();
-                let _ = iter.prev();
-                iter
+                (new_free_block_offset, new_free_block_size)
             };
-            if let Some(prev_block) = block_iter_bwd.prev() {
-                if prev_block.is_free {
-                    new_free_block_offset = prev_block.offset;
-                    new_free_block_size += prev_block.size;
-                }
-            }
-
-            let mut block_iter_fwd = block_iter.clone();
-            if let Some(next_block) = block_iter.next() {
-                if next_block.is_free {
-                    new_free_block_size += next_block.size;
-                }
-            }
             if let Err(err) = self.create_block(new_free_block_offset, new_free_block_size, true) {
                 return BlockDeallocResult::DeallocErr(err);
             };
@@ -196,6 +232,6 @@ impl Arena {
             BlockDeallocResult::DeallocOk
         } else {
             BlockDeallocResult::NotFound
-        })
+        }
     }
 }

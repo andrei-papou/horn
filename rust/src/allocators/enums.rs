@@ -1,4 +1,4 @@
-#[derive(Debug, Display)]
+#[derive(Debug)]
 pub(crate) enum MemOpError {
     OutOfBoundsForward,
     OutOfBoundsBackward,

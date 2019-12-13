@@ -4,7 +4,7 @@ use super::enums::MemOpError;
 
 /// Safe wrapper around the memory region.
 /// Construction is unsafe, all the other operations are safe.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct BoundedPtr {
     ptr: NonNull<u8>,
     fwd_size: usize,
@@ -30,7 +30,7 @@ impl BoundedPtr {
     }
 
     pub(crate) fn contains_raw(&self, ptr: NonNull<u8>) -> bool {
-        self.get_start().as_ptr() <= ptr && ptr <= self.get_end()
+        self.get_start().as_ptr() <= ptr && ptr <= self.get_end().as_ptr()
     }
 
     pub(crate) fn contains(&self, ptr: BoundedPtr) -> bool {
@@ -83,7 +83,7 @@ impl BoundedPtr {
             let n = (-n) as usize;
             if n <= self.bwd_size {
                 Ok(BoundedPtr {
-                    ptr: unsafe { NonNull::new_unchecked(self.ptr.as_ptr().offset(-n as isize)) },
+                    ptr: unsafe { NonNull::new_unchecked(self.ptr.as_ptr().offset(-(n as isize))) },
                     fwd_size: self.fwd_size + n,
                     bwd_size: self.bwd_size - n,
                 })
