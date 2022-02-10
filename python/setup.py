@@ -17,7 +17,7 @@ setuptools.setup(
     install_requires=[
         'keras==2.2.4',
         'scikit-learn==0.20.4',
-        'tensorflow==1.14.0',
+        'tensorflow==2.5.3',
         'typing==3.7.4',
     ]
 )
